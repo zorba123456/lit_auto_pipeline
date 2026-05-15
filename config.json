@@ -1,4 +1,9 @@
 {
+    "_meta": {
+        "version": "1.0.0",
+        "last_updated": "2026-05-15",
+        "description": "LWW Group 403 Bypass Pipeline"
+    },
     "lww_journals": [
         {
             "name": "prs_latest",
