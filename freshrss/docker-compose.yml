@@ -9,6 +9,7 @@ services:
     volumes:
       - ./data:/var/www/FreshRSS/data
       - ./extensions:/var/www/FreshRSS/extensions
+      - ./wiley_dth.xml:/var/www/FreshRSS/p/wiley_dth.xml
     environment:
       - TZ=Asia/Shanghai
       - CRON_MIN=15,45

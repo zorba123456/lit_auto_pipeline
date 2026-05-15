@@ -1,8 +1,61 @@
 from DrissionPage import ChromiumPage, ChromiumOptions
 import time
+import os
+from datetime import datetime
+
+# === 配置区域 ===
+RSS_FILENAME = "freshrss/wiley_dth.xml"
+MEMORY_FILE = "freshrss/last_link.txt"
+JOURNAL_URL = "https://onlinelibrary.wiley.com/journal/dth"
+
+def generate_rss(articles, filename):
+    """生成 RSS XML 文件"""
+    rss_template = """<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+    <title>Wiley - Dermatologic Therapy</title>
+    <link>https://onlinelibrary.wiley.com/journal/dth</link>
+    <description>Latest articles from Dermatologic Therapy (Auto-Sync)</description>
+    <lastBuildDate>{build_date}</lastBuildDate>
+    {items}
+</channel>
+</rss>"""
+
+    item_template = """
+    <item>
+        <title><![CDATA[{title}]]></title>
+        <link>{link}</link>
+        <guid>{link}</guid>
+    </item>"""
+
+    items_str = ""
+    for article in articles:
+        items_str += item_template.format(title=article['title'], link=article['link'])
+
+    build_date = datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0000")
+    rss_content = rss_template.format(build_date=build_date, items=items_str)
+
+    # 确保目录存在
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(rss_content)
+    print(f"\n✅ RSS 文件已更新: {filename}")
+
+def get_last_link():
+    """读取上次抓取的最新一条链接"""
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return None
+
+def save_last_link(link):
+    """记录本次抓取的最新一条链接"""
+    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
+    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
+        f.write(link)
 
 def test_wiley_scraper():
-    print("🚀 正在启动 DrissionPage 浏览器...")
+    print("🚀 启动自动化同步程序...")
     
     co = ChromiumOptions()
     co.set_browser_path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
@@ -11,60 +64,79 @@ def test_wiley_scraper():
     co.auto_port()
 
     page = ChromiumPage(co)
+    page.get(JOURNAL_URL)
     
-    url = "https://onlinelibrary.wiley.com/journal/dth" 
-    print(f"🌐 正在访问目标页面: {url}")
-    page.get(url)
-    
-    # --- 全自动侦测逻辑：根据网页标题判断是否绕过 Cloudflare ---
-    print("🤖 正在全自动突破 Cloudflare 防护屏障...")
-    
+    # 1. 自动绕过验证
+    print("⏳ 等待 Cloudflare 验证...")
     wait_time = 0
-    # 只要标题里还有 "Just a moment" 或 "Cloudflare"，就说明还在验证中
-    while ("Just a moment" in page.title or "Cloudflare" in page.title) and wait_time < 30:
-        time.sleep(1)
-        wait_time += 1
-        
+    while ("Just a moment" in page.title or "Cloudflare" in page.title) and wait_time < 45:
+        time.sleep(2)
+        wait_time += 2
+    
     if "Just a moment" in page.title:
-        print("❌ 突破失败，遇到死循环验证。")
+        print("❌ 验证超时，请检查网络节点。")
         return
-        
-    print(f"✅ 突破成功！已自动进入期刊主页: {page.title}")
-    
-    # 触发动态内容加载
-    print("⏳ 正在模拟真实用户滚动页面获取文献列表...")
-    page.scroll.down(1000) 
-    time.sleep(3) # 稍微多等一秒，让底部的文章标题充分加载
 
-    print("🔍 开始提取文献标题和链接...")
+    print(f"✅ 已进入期刊主页: {page.title}")
     
-    all_links = page.eles('tag:a')
+    # 2. 读取记忆
+    last_top_link = get_last_link()
+    print(f"📜 记忆中的最后一条文献链接: {last_top_link}")
+
     articles = []
+    found_old_article = False
     
-    for a in all_links:
-        class_name = a.attr('class')
-        if class_name and 'issue-item__title' in class_name:
-            title = a.attr('title')
-            if not title:
-                title = a.text.strip()
-                
+    # 3. 智能抓取逻辑
+    for page_num in range(1, 6):  # 最多尝试翻 5 页，防止极端情况死循环
+        print(f"🔍 正在扫描第 {page_num} 页内容...")
+        
+        # 触发一点滚动确保加载
+        page.scroll.down(800)
+        time.sleep(2)
+        
+        # 获取当前页面所有文献标题链接
+        # 修正：DrissionPage 推荐使用更加健壮的定位方式
+        links = page.eles('tag:a@@class:issue-item__title')
+        
+        if not links:
+            print("⚠️ 未能在当前页面找到文献元素。")
+            break
+
+        for a in links:
+            title = a.attr('title') or a.text.strip()
             href = a.attr('href')
-            if title and href:
-                if not href.startswith('http'):
-                    href = "https://onlinelibrary.wiley.com" + href
-                if not any(item['link'] == href for item in articles):
-                    articles.append({'title': title, 'link': href})
+            if not href.startswith('http'):
+                href = "https://onlinelibrary.wiley.com" + href
+            
+            # 命中记忆：如果遇到上次抓过的链接，立即停止
+            if last_top_link and href == last_top_link:
+                print(f"✨ 发现旧文献节点，停止采集：{title}")
+                found_old_article = True
+                break
+            
+            if not any(item['link'] == href for item in articles):
+                articles.append({'title': title, 'link': href})
 
-    if not articles:
-        print("❌ 未能提取到数据！可能是网页结构有变。")
-        return
+        # 如果抓到了旧文章，或者没看到 "More Articles" 按钮，就彻底退出循环
+        more_btn = page.ele('text:More Articles')
+        if found_old_article or not more_btn:
+            if not more_btn: print("🏁 已到达网页最底部。")
+            break
+        
+        # 如果第一页全是新文章，没撞到记忆，则点击加载更多
+        print("🚩 未触达旧节点，尝试加载更多文献...")
+        more_btn.click()
+        time.sleep(4)
 
-    print(f"🎉 提取成功！共找到 {len(articles)} 篇文献，下面打印前 5 篇：\n")
-    print("-" * 40)
-    for i, article in enumerate(articles[:5]):
-        print(f"[{i+1}] {article['title']}")
-        print(f"🔗 {article['link']}\n")
-    print("-" * 40)
+    # 4. 结算与保存
+    if articles:
+        # 将本次抓到的第一条存入记忆（作为下次的终点）
+        save_last_link(articles[0]['link'])
+        # 生成 XML
+        generate_rss(articles, RSS_FILENAME)
+        print(f"🎉 同步完成！本次新增/更新了 {len(articles)} 条文献。")
+    else:
+        print("☕ 没有检测到新文献更新。")
 
 if __name__ == "__main__":
     test_wiley_scraper()

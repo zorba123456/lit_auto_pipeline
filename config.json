@@ -1,0 +1,20 @@
+{
+    "lww_journals": [
+        {
+            "name": "prs_latest",
+            "url": "https://journals.lww.com/plasreconsurg/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles"
+        },
+        {
+            "name": "dermatologic_surgery_latest",
+            "url": "https://journals.lww.com/dermatologicsurgery/_layouts/15/OAKS.Journals/feed.aspx?FeedType=LatestArticles&year=9000&issue=00000"
+        },
+        {
+            "name": "dermatology_times",
+            "url": "https://www.dermatologytimes.com/rss"
+        },
+        {
+            "name": "aesthetic_medical_practitioner",
+            "url": "https://aestheticmedicalpractitioner.com.au/feed/"
+        }
+    ]
+}
