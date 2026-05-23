@@ -1,25 +1,20 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
-# AES-INTEL 手动全量执行脚本
-# VERSION: v1.0.6 (真双轨锁 - 彻底不触碰人类资产版)
+# AES-INTEL 自动化管线全量心跳调度脚本
+# VERSION: v1.0.6-gated (全局昼夜状态闸门控制版)
 # ------------------------------------------------------------------------------
-VERSION="v1.0.6"
-ROBOT_LOCK="/Users/meiyiwangluokeji/coding/lit_auto_pipeline/pipeline.lock"
-RUN_FLAG="/Users/meiyiwangluokeji/coding/lit_auto_pipeline/run"
-SCRIPT_PATH="/Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh"
+VERSION="v1.0.6-gated"
+PROJECT_DIR="/Users/meiyiwangluokeji/coding/lit_auto_pipeline"
 
-echo "🚀 开始串行执行全量文献管线 ($VERSION)..."
+cd "$PROJECT_DIR" || exit 1
 
-# 【前置清场】：只清理机器人自己的临时锁和红灯
-rm -rf "$ROBOT_LOCK" "$RUN_FLAG" 2>/dev/null
-trap 'rm -rf "$ROBOT_LOCK" "$RUN_FLAG" 2>/dev/null; echo "任务已人工中断"' INT TERM
+echo "🚀 开始串行分发全量文献管线心跳 ($VERSION)..."
 
-# 执行任务
-"$SCRIPT_PATH" lww
-"$SCRIPT_PATH" cma
-"$SCRIPT_PATH" ktn
-"$SCRIPT_PATH" cnki
+# 依次串行分发任务
+# 每个任务进入 run_task.sh 后都会先独立判断状态和 pipeline.lock，安全且不抢占资源
+./run_task.sh lww
+./run_task.sh cma
+./run_task.sh ktn
+./run_task.sh cnki
 
-# 【后置扫尾】：只清理机器人的资产
-rm -rf "$ROBOT_LOCK" "$RUN_FLAG" 2>/dev/null
-echo "✅ 全量文献管线 ($VERSION) 执行完毕！"
+echo "✅ 全量文献管线心跳 ($VERSION) 分发完毕！"
