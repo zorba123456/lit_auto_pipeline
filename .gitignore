@@ -4,6 +4,5 @@ venv/
 __pycache__/
 freshrss/data/
 freshrss/extensions/
-*.xml
 *.log
 Lit_Bot_Profile/
