@@ -54,7 +54,7 @@ source venv/bin/activate
 # 🛑 开启物理红灯
 touch "$RUN_FLAG"
 
-python3 "aes-feeds/${TASK_NAME}_downloader.py" >> "$LOG_FILE" 2>&1
+python3 "aes-feeds/${TASK_NAME}_downloader.py" 2>&1 | tee -a "$LOG_FILE"
 
 # 🟢 湮灭物理红灯
 rm -f "$RUN_FLAG" 2>/dev/null
