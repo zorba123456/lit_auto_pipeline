@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AES-Feeds Cloud Live Reader - 实时云端订阅源排查工具</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --sidebar-bg: rgba(17, 24, 39, 0.7);
+            --content-bg: rgba(17, 24, 39, 0.4);
+            --card-bg: rgba(31, 41, 55, 0.45);
+            --card-hover: rgba(55, 65, 81, 0.6);
+            --accent-primary: #6366f1;
+            --accent-primary-glow: rgba(99, 102, 241, 0.3);
+            --accent-secondary: #06b6d4;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --badge-priority: #ec4899;
+            --badge-netfirst: #3b82f6;
+            --badge-toc: #10b981;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 45%);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Top Navigation Header */
+        header {
+            height: 70px;
+            background: rgba(11, 15, 25, 0.8);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 30px;
+            z-index: 10;
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .header-logo-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: linear-gradient(to right, #ffffff, #d1d5db);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-logo-badge {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--accent-primary);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* Buttons */
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary), rgba(99, 102, 241, 0.8));
+            border: none;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+            background: linear-gradient(135deg, #4f46e5, var(--accent-primary));
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        /* Main Workspace Layout */
+        .workspace {
+            flex: 1;
+            display: flex;
+            height: calc(100vh - 70px);
+            overflow: hidden;
+        }
+
+        /* Sidebar: Feeds Directory */
+        .sidebar {
+            width: 320px;
+            background: var(--sidebar-bg);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .search-container {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .search-input {
+            width: 100%;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0 14px;
+            color: var(--text-main);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .search-input:focus {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 10px var(--accent-primary-glow);
+        }
+
+        .category-tabs {
+            display: flex;
+            gap: 6px;
+            padding: 10px 20px;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .category-tab {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .category-tab:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .category-tab.active {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: rgba(99, 102, 241, 0.4);
+            color: var(--accent-primary);
+        }
+
+        .feed-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .feed-item {
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .feed-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+            border-color: rgba(255, 255, 255, 0.04);
+        }
+
+        .feed-item.active {
+            background: rgba(99, 102, 241, 0.08);
+            border-color: rgba(99, 102, 241, 0.2);
+        }
+
+        .feed-item-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            overflow: hidden;
+        }
+
+        .feed-item-title {
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .feed-item-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .platform-badge {
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 4px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-cma { background: rgba(236, 72, 153, 0.15); color: #ec4899; border: 1px solid rgba(236, 72, 153, 0.3); }
+        .badge-cnki { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); }
+        .badge-lww { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+        .badge-ktn { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+        /* Main Feed Viewer */
+        .content-area {
+            flex: 1;
+            background: var(--content-bg);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Feed Header Area */
+        .feed-header {
+            padding: 30px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .feed-header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        .feed-header-info {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .feed-header-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .feed-header-url {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .feed-header-url a {
+            color: var(--accent-primary);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .feed-header-url a:hover {
+            text-decoration: underline;
+            color: var(--accent-secondary);
+        }
+
+        .feed-header-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .feed-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .feed-meta-item strong {
+            color: var(--text-main);
+        }
+
+        /* Articles Container Grid/List */
+        .articles-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            gap: 16px;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .empty-state-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 20px;
+            color: white;
+            font-weight: 600;
+        }
+
+        /* Article Glass Card */
+        .article-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .article-card:hover {
+            background: var(--card-hover);
+            border-color: rgba(255, 255, 255, 0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        }
+
+        .article-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .article-title-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .article-title {
+            font-size: 16.5px;
+            font-weight: 600;
+            color: white;
+            line-height: 1.4;
+        }
+
+        .article-card-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+
+        .badge-priority-text { background: rgba(236, 72, 153, 0.15); color: var(--badge-priority); border: 1px solid rgba(236, 72, 153, 0.3); }
+        .badge-netfirst-text { background: rgba(59, 130, 246, 0.15); color: var(--badge-netfirst); border: 1px solid rgba(59, 130, 246, 0.3); }
+        .badge-toc-text { background: rgba(16, 185, 129, 0.15); color: var(--badge-toc); border: 1px solid rgba(16, 185, 129, 0.3); }
+
+        .article-date {
+            font-size: 12.5px;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .article-author {
+            font-size: 13.5px;
+            color: var(--accent-secondary);
+            font-weight: 500;
+        }
+
+        /* Abstract/HTML Content inside feed */
+        .article-description {
+            font-size: 14px;
+            line-height: 1.6;
+            color: var(--text-muted);
+            max-height: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+
+        .article-description b {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        /* Expanded Mode Styling */
+        .article-card.expanded {
+            cursor: default;
+            background: rgba(31, 41, 55, 0.7);
+            border-color: rgba(99, 102, 241, 0.3);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .article-card.expanded:hover {
+            transform: none;
+        }
+
+        .article-card.expanded .article-description {
+            max-height: none;
+            display: block;
+            border-top: 1px solid var(--border-color);
+            padding-top: 14px;
+        }
+
+        .article-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 12px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 14px;
+            margin-top: 6px;
+        }
+
+        /* Spinner Animation */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-primary);
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.01);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Notification Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(17, 24, 39, 0.9);
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(16px);
+            padding: 14px 24px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 999;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        .toast-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .toast-success .toast-icon { background-color: var(--success-color); }
+        .toast-error .toast-icon { background-color: var(--danger-color); }
+
+        .toast-message {
+            font-size: 13.5px;
+            color: var(--text-main);
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Top Navigation -->
+    <header>
+        <div class="header-logo">
+            <div class="header-logo-icon">AES</div>
+            <div class="header-logo-title">Cloud Live Feed Reader</div>
+            <div class="header-logo-badge">Live Sync</div>
+        </div>
+        <div class="header-controls">
+            <button class="btn btn-primary" id="btn-global-refresh" onclick="forceSyncAll()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                同步云端所有 Feed
+            </button>
+        </div>
+    </header>
+
+    <!-- Workspace -->
+    <div class="workspace">
+        
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="search-container">
+                <input type="text" class="search-input" id="search-feed" placeholder="搜索期刊源..." oninput="filterFeeds()">
+            </div>
+            
+            <div class="category-tabs" id="platform-tabs">
+                <div class="category-tab active" data-platform="all" onclick="selectPlatform('all')">全部</div>
+                <div class="category-tab" data-platform="cma" onclick="selectPlatform('cma')">CMA</div>
+                <div class="category-tab" data-platform="cnki" onclick="selectPlatform('cnki')">CNKI</div>
+                <div class="category-tab" data-platform="lww" onclick="selectPlatform('lww')">LWW</div>
+                <div class="category-tab" data-platform="ktn" onclick="selectPlatform('ktn')">KTN</div>
+            </div>
+            
+            <div class="feed-list" id="feed-list-container">
+                <!-- Will be dynamically populated -->
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="content-area">
+            
+            <!-- Default Empty State -->
+            <div class="empty-state" id="feed-empty-state">
+                <div class="empty-state-icon">📡</div>
+                <div class="empty-state-title">请从左侧栏选择需要排查的订阅源</div>
+                <p style="font-size: 13px; max-width: 320px; line-height: 1.5;">系统将直接绕过 CDN 缓存实时抓取 GitHub Cloud 上的最新 XML 文件，提供 100% 端到端的合规检验环境。</p>
+            </div>
+
+            <!-- Feed Content (Initially Hidden) -->
+            <div id="feed-content-wrapper" style="display: none; flex: 1; flex-direction: column; overflow: hidden;">
+                <!-- Feed Header -->
+                <div class="feed-header">
+                    <div class="feed-header-top">
+                        <div class="feed-header-info">
+                            <div class="feed-header-title" id="active-feed-title">--</div>
+                            <div class="feed-header-url">
+                                <span>云端 URL: </span>
+                                <a href="#" id="active-feed-url" target="_blank">--</a>
+                            </div>
+                        </div>
+                        <button class="btn btn-primary" id="btn-sync-single" onclick="syncActiveFeed()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                            强刷此 Feed
+                        </button>
+                    </div>
+                    <div class="feed-header-meta-row">
+                        <div class="feed-meta-item">平台标签: <span class="platform-badge" id="active-feed-platform-badge">--</span></div>
+                        <div class="feed-meta-item">云端生成日期: <strong id="active-feed-build-date">--</strong></div>
+                        <div class="feed-meta-item">包含文献: <strong id="active-feed-article-count">0 篇</strong></div>
+                    </div>
+                    <div>
+                        <input type="text" class="search-input" id="search-article" placeholder="在此订阅源中搜索文献标题、作者..." oninput="filterArticles()">
+                    </div>
+                </div>
+
+                <!-- Articles Scroll List -->
+                <div class="articles-list" id="articles-list-container">
+                    <!-- Cards will be populated here -->
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast-notify">
+        <div class="toast-icon">✓</div>
+        <div class="toast-message" id="toast-message">同步成功！</div>
+    </div>
+
+    <!-- Feeds Config Array -->
+    <script>
+        const FEEDS_CONFIG = [
+            // CMA
+            { id: "cma_dermatology", name: "中华皮肤科杂志", platform: "cma", filename: "cma_dermatology.xml" },
+            { id: "cma_plastics", name: "中华整形外科杂志", platform: "cma", filename: "cma_plastics.xml" },
+            { id: "cma_aesthetics", name: "中华医学美学美容杂志", platform: "cma", filename: "cma_aesthetics.xml" },
+            
+            // CNKI
+            { id: "cnki_sypf", name: "实用皮肤病学杂志", platform: "cnki", filename: "cnki_sypf.xml" },
+            { id: "cnki_zyxw", name: "皮肤科学通报", platform: "cnki", filename: "cnki_zyxw.xml" },
+            { id: "cnki_xhyx", name: "协和医学杂志", platform: "cnki", filename: "cnki_xhyx.xml" },
+            { id: "cnki_lcpf", name: "临床皮肤科杂志", platform: "cnki", filename: "cnki_lcpf.xml" },
+            { id: "cnki_smzw", name: "中国美容整形外科杂志", platform: "cnki", filename: "cnki_smzw.xml" },
+            { id: "cnki_mryx", name: "中国美容医学", platform: "cnki", filename: "cnki_mryx.xml" },
+            { id: "cnki_zbfx", name: "中国皮肤性病学杂志", platform: "cnki", filename: "cnki_zbfx.xml" },
+            { id: "cnki_zgjg", name: "中国激光医学杂志", platform: "cnki", filename: "cnki_zgjg.xml" },
+            { id: "cnki_zylz", name: "中国医疗器械杂志", platform: "cnki", filename: "cnki_zylz.xml" },
+            { id: "cnki_zgqx", name: "中国医疗器械信息", platform: "cnki", filename: "cnki_zgqx.xml" },
+            
+            // LWW
+            { id: "aswc_current_issue", name: "ASWC - Current Issue", platform: "lww", filename: "aswc_current_issue.xml" },
+            { id: "aswc_latest_articles", name: "ASWC - Latest Articles", platform: "lww", filename: "aswc_latest_articles.xml" },
+            { id: "annals_plast_surg_current", name: "Annals of Plast Surg - Current", platform: "lww", filename: "annals_plast_surg_current.xml" },
+            { id: "annals_plast_surg_latest", name: "Annals of Plast Surg - Latest", platform: "lww", filename: "annals_plast_surg_latest.xml" },
+            { id: "derm_surgery_ahead", name: "Derm Surgery - Ahead of Print", platform: "lww", filename: "derm_surgery_ahead.xml" },
+            { id: "derm_surgery_latest", name: "Derm Surgery - Latest Articles", platform: "lww", filename: "derm_surgery_latest.xml" },
+            { id: "j_craniofacial_surg_latest", name: "J Craniofacial Surg - Ahead of Print", platform: "lww", filename: "j_craniofacial_surg_latest.xml" },
+            { id: "j_craniofacial_surg_open_latest", name: "J Craniofacial Surg Open - Latest", platform: "lww", filename: "j_craniofacial_surg_open_latest.xml" },
+            { id: "prs_current_issue", name: "PRS - Current Issue", platform: "lww", filename: "prs_current_issue.xml" },
+            { id: "prs_latest_articles", name: "PRS - Latest Articles", platform: "lww", filename: "prs_latest_articles.xml" },
+            { id: "prs_online_first", name: "PRS - Online First", platform: "lww", filename: "prs_online_first.xml" },
+            { id: "prs_video", name: "PRS - Video Feed", platform: "lww", filename: "prs_video.xml" },
+            { id: "prs_go_current_issue", name: "PRS Go - Current Issue", platform: "lww", filename: "prs_go_current_issue.xml" },
+            { id: "prs_go_latest_articles", name: "PRS Go - Latest Articles", platform: "lww", filename: "prs_go_latest_articles.xml" },
+            
+            // KTN
+            { id: "ktn_aesthetic_surgery", name: "KTN - Aesthetic Surgery", platform: "ktn", filename: "ktn_aesthetic_surgery.xml" },
+            { id: "ktn_blepharoplasty", name: "KTN - Blepharoplasty", platform: "ktn", filename: "ktn_blepharoplasty.xml" },
+            { id: "ktn_botulinum_toxin", name: "KTN - Botulinum Toxin", platform: "ktn", filename: "ktn_botulinum_toxin.xml" },
+            { id: "ktn_hyaluronic_acid_injection", name: "KTN - Hyaluronic Acid", platform: "ktn", filename: "ktn_hyaluronic_acid_injection.xml" },
+            { id: "ktn_rhinoplasty", name: "KTN - Rhinoplasty", platform: "ktn", filename: "ktn_rhinoplasty.xml" }
+        ];
+
+        const REPO_BASE = "https://raw.githubusercontent.com/zorba123456/aes-feeds/main/";
+        let activeFeedId = null;
+        let selectedPlatform = "all";
+        let activeArticles = [];
+
+        // On Page Load
+        window.addEventListener('DOMContentLoaded', () => {
+            renderFeedList();
+        });
+
+        // Show toast notifications
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast-notify');
+            const msgEl = document.getElementById('toast-message');
+            
+            toast.className = 'toast show';
+            if (isError) {
+                toast.classList.add('toast-error');
+                toast.querySelector('.toast-icon').textContent = '✗';
+            } else {
+                toast.classList.add('toast-success');
+                toast.querySelector('.toast-icon').textContent = '✓';
+            }
+            
+            msgEl.textContent = message;
+            
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        // Render sidebar feeds
+        function renderFeedList() {
+            const container = document.getElementById('feed-list-container');
+            const searchKeyword = document.getElementById('search-feed').value.toLowerCase().strip();
+            container.innerHTML = '';
+
+            const filtered = FEEDS_CONFIG.filter(feed => {
+                const matchesSearch = feed.name.toLowerCase().includes(searchKeyword) || feed.filename.toLowerCase().includes(searchKeyword);
+                const matchesPlatform = (selectedPlatform === 'all' || feed.platform === selectedPlatform);
+                return matchesSearch && matchesPlatform;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 12.5px; padding: 20px;">没有找到匹配的订阅源</div>`;
+                return;
+            }
+
+            filtered.forEach(feed => {
+                const item = document.createElement('div');
+                item.className = `feed-item ${feed.id === activeFeedId ? 'active' : ''}`;
+                item.setAttribute('onclick', `selectFeed('${feed.id}')`);
+                item.innerHTML = `
+                    <div class="feed-item-info">
+                        <div class="feed-item-title">${feed.name}</div>
+                        <div class="feed-item-meta">
+                            <span class="platform-badge badge-${feed.platform}">${feed.platform}</span>
+                            <span>${feed.filename}</span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        // Filter search input
+        function filterFeeds() {
+            renderFeedList();
+        }
+
+        // Click category tabs
+        function selectPlatform(platform) {
+            selectedPlatform = platform;
+            
+            // Update UI class
+            const tabs = document.querySelectorAll('#platform-tabs .category-tab');
+            tabs.forEach(tab => {
+                if (tab.getAttribute('data-platform') === platform) {
+                    tab.classList.add('active');
+                } else {
+                    tab.classList.remove('active');
+                }
+            });
+            
+            renderFeedList();
+        }
+
+        // Select active feed
+        async function selectFeed(feedId) {
+            activeFeedId = feedId;
+            
+            // Re-render sidebar to highlight active item
+            const feedItems = document.querySelectorAll('.feed-item');
+            feedItems.forEach(item => {
+                item.classList.remove('active');
+            });
+            renderFeedList();
+
+            // Hide empty state and show content wrapper
+            document.getElementById('feed-empty-state').style.display = 'none';
+            document.getElementById('feed-content-wrapper').style.display = 'flex';
+            
+            // Set header content
+            const feed = FEEDS_CONFIG.find(f => f.id === feedId);
+            const rawUrl = REPO_BASE + feed.filename;
+            
+            document.getElementById('active-feed-title').textContent = feed.name;
+            const linkEl = document.getElementById('active-feed-url');
+            linkEl.textContent = rawUrl;
+            linkEl.href = rawUrl;
+            
+            const badge = document.getElementById('active-feed-platform-badge');
+            badge.textContent = feed.platform;
+            badge.className = `platform-badge badge-${feed.platform}`;
+
+            document.getElementById('active-feed-build-date').textContent = '获取中...';
+            document.getElementById('active-feed-article-count').textContent = '获取中...';
+            
+            // Fetch Feed Content
+            await fetchFeedContent(feed, false);
+        }
+
+        // Fetch feed file from Github Raw
+        async function fetchFeedContent(feed, bypassCache = false) {
+            const container = document.getElementById('articles-list-container');
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="spinner"></div>
+                    <div style="font-size: 14px; margin-top: 8px;">正在从云端拉取并解析 XML 文件...</div>
+                </div>
+            `;
+            
+            let url = REPO_BASE + feed.filename;
+            if (bypassCache) {
+                url += `?t=${Date.now()}`;
+            }
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP 异常! 状态码: ${response.status}`);
+                }
+                const xmlText = await response.text();
+                
+                // Parse XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                
+                // Read channel meta
+                const lastBuildDateEl = xmlDoc.querySelector('lastBuildDate') || xmlDoc.querySelector('pubDate');
+                const lastBuildDate = lastBuildDateEl ? lastBuildDateEl.textContent : '未知';
+                document.getElementById('active-feed-build-date').textContent = lastBuildDate;
+
+                // Read items
+                const items = xmlDoc.querySelectorAll('item');
+                document.getElementById('active-feed-article-count').textContent = `${items.length} 篇`;
+
+                activeArticles = [];
+                items.forEach((itemNode) => {
+                    const title = itemNode.querySelector('title') ? itemNode.querySelector('title').textContent : '无标题';
+                    const link = itemNode.querySelector('link') ? itemNode.querySelector('link').textContent : '#';
+                    const author = itemNode.querySelector('author') ? itemNode.querySelector('author').textContent : '本刊编辑部';
+                    const pubDate = itemNode.querySelector('pubDate') ? itemNode.querySelector('pubDate').textContent : '';
+                    const desc = itemNode.querySelector('description') ? itemNode.querySelector('description').textContent : '无摘要';
+                    
+                    activeArticles.push({ title, link, author, pubDate, desc });
+                });
+
+                renderArticles();
+                if (bypassCache) {
+                    showToast("同步成功！已获取到最新的云端文献数据。");
+                }
+
+            } catch (error) {
+                console.error("解析 Feed 失败:", error);
+                container.innerHTML = `
+                    <div class="empty-state" style="color: var(--danger-color);">
+                        <div style="font-size: 40px; margin-bottom: 10px;">⚠️</div>
+                        <div class="empty-state-title" style="color: var(--danger-color);">拉取云端 XML 失败</div>
+                        <p style="font-size: 13px; max-width: 380px; line-height: 1.5; color: var(--text-muted); margin-top: 6px;">
+                            ${error.message}<br>
+                            请检查您的网络连接，或确认该 XML 文件已推送到 <a href="https://github.com/zorba123456/aes-feeds" target="_blank" style="color:var(--accent-primary)">GitHub 仓库</a>。
+                        </p>
+                    </div>
+                `;
+                document.getElementById('active-feed-build-date').textContent = '错误';
+                document.getElementById('active-feed-article-count').textContent = '错误';
+                if (bypassCache) {
+                    showToast("同步失败: " + error.message, true);
+                }
+            }
+        }
+
+        // Render articles list
+        function renderArticles() {
+            const container = document.getElementById('articles-list-container');
+            container.innerHTML = '';
+            
+            const keyword = document.getElementById('search-article').value.toLowerCase().strip();
+            const filtered = activeArticles.filter(item => {
+                return item.title.toLowerCase().includes(keyword) || item.author.toLowerCase().includes(keyword) || item.desc.toLowerCase().includes(keyword);
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="empty-state"><div class="empty-state-title">没有找到匹配的文献</div></div>`;
+                return;
+            }
+
+            filtered.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'article-card';
+                card.id = `article-card-${index}`;
+                card.setAttribute('onclick', `toggleArticleExpand(${index})`);
+                
+                // Determine Badge type from title prefix
+                let badgeHTML = '';
+                let cleanTitle = item.title;
+                if (item.title.includes('[优先出版]')) {
+                    badgeHTML = '<span class="article-card-badge badge-priority-text">优先出版</span>';
+                    cleanTitle = item.title.replace('[优先出版]', '').strip();
+                } else if (item.title.includes('[网络首发]')) {
+                    badgeHTML = '<span class="article-card-badge badge-netfirst-text">网络首发</span>';
+                    cleanTitle = item.title.replace('[网络首发]', '').strip();
+                } else if (item.title.includes('[当期目录]')) {
+                    badgeHTML = '<span class="article-card-badge badge-toc-text">当期目录</span>';
+                    cleanTitle = item.title.replace('[当期目录]', '').strip();
+                }
+
+                // Format pubDate nicely
+                let displayDate = item.pubDate;
+                if (item.pubDate && item.pubDate.includes('GMT')) {
+                    // Truncate some GMT format
+                    display_date_val = item.pubDate.replace('00:00:00 GMT', '').replace('GMT', '').strip();
+                    displayDate = display_date_val;
+                }
+
+                card.innerHTML = `
+                    <div class="article-card-header">
+                        <div class="article-title-container">
+                            ${badgeHTML}
+                            <div class="article-title">${cleanTitle}</div>
+                        </div>
+                        <div class="article-date">${displayDate}</div>
+                    </div>
+                    <div class="article-author">${item.author}</div>
+                    <div class="article-description">${item.desc}</div>
+                    <div class="article-actions" style="display: none;" id="article-actions-${index}">
+                        <a href="${item.link}" target="_blank" class="btn btn-primary" style="padding: 6px 12px; font-size:12px;">
+                            打开原文链接
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/></svg>
+                        </a>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Expand/Collapse article card
+        function toggleArticleExpand(index) {
+            const card = document.getElementById(`article-card-${index}`);
+            const actions = document.getElementById(`article-actions-${index}`);
+            
+            // Check if already expanded
+            const isExpanded = card.classList.contains('expanded');
+            
+            // Close all first
+            const expandedCards = document.querySelectorAll('.article-card.expanded');
+            expandedCards.forEach(c => {
+                c.classList.remove('expanded');
+            });
+            const actionDivs = document.querySelectorAll('.article-actions');
+            actionDivs.forEach(a => {
+                a.style.display = 'none';
+            });
+            
+            // Toggle current
+            if (!isExpanded) {
+                card.classList.add('expanded');
+                actions.style.display = 'flex';
+            }
+        }
+
+        // Filter keyword in active articles
+        function filterArticles() {
+            renderArticles();
+        }
+
+        // Sync active feed
+        async function syncActiveFeed() {
+            if (!activeFeedId) return;
+            const feed = FEEDS_CONFIG.find(f => f.id === activeFeedId);
+            await fetchFeedContent(feed, true);
+        }
+
+        // Force Sync All
+        async function forceSyncAll() {
+            if (activeFeedId) {
+                await syncActiveFeed();
+            } else {
+                showToast("同步成功！已重置所有云端拉取会话。");
+            }
+        }
+
+        // Prototype polyfill for string strip
+        String.prototype.strip = function() {
+            return this.replace(/^\s+|\s+$/g, '');
+        };
+    </script>
+</body>
+</html>
