@@ -1,6 +1,6 @@
 # AES-INTEL 项目集成与质量测试报告
 
-- **测试时间**: 2026-05-30 10:35:02
+- **测试时间**: 2026-05-30 10:39:41
 - **测试环境**: darwin25 / Python $(python3 -V 2>&1)
 
 ## 📊 测试结论
@@ -13,7 +13,7 @@
 
 | 检查项 | 状态 | 说明 |
 | :--- | :---: | :--- |
-| **pytest 单元测试** | ✅ PASS | ============================= 137 passed in 0.20s ============================== |
+| **pytest 单元测试** | ✅ PASS | ============================= 137 passed in 0.22s ============================== |
 | **文件输出路径安全性** | ✅ PASS | 检查是否有 XML 泄露到项目根目录 |
 | **Python 代码静态编译** | ✅ PASS | 检查 `aes-feeds` 下所有脚本的语法正确性 |
 
@@ -169,5 +169,5 @@ tests/test_summary_reporter.py::TestPrintSummaryTable::test_does_not_raise_on_su
 tests/test_summary_reporter.py::TestPrintSummaryTable::test_does_not_raise_on_fail_reports PASSED [ 99%]
 tests/test_summary_reporter.py::TestPrintSummaryTable::test_total_count_in_output PASSED [100%]
 
-============================= 137 passed in 0.20s ==============================" | tail -n 20)
+============================= 137 passed in 0.22s ==============================" | tail -n 20)
 ```
