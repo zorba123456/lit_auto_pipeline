@@ -54,7 +54,11 @@ source venv/bin/activate
 # 🛑 开启物理红灯
 touch "$RUN_FLAG"
 
-python3 "aes-feeds/${TASK_NAME}_downloader.py" 2>&1 | tee -a "$LOG_FILE"
+if [ "$TASK_NAME" = "cnki" ]; then
+    python3 "aes-feeds/${TASK_NAME}_downloader.py" --mode rss 2>&1 | tee -a "$LOG_FILE"
+else
+    python3 "aes-feeds/${TASK_NAME}_downloader.py" 2>&1 | tee -a "$LOG_FILE"
+fi
 
 # 🟢 湮灭物理红灯
 rm -f "$RUN_FLAG" 2>/dev/null

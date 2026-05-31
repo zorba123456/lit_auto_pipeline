@@ -246,3 +246,93 @@ class TestDedupLogic:
         fp1 = hashlib.md5('论文A https://cnki.net/1'.replace(' ', '').encode('utf-8')).hexdigest()
         fp2 = hashlib.md5('论文B https://cnki.net/2'.replace(' ', '').encode('utf-8')).hexdigest()
         assert fp1 != fp2
+
+
+# ─────────────────────────────────────────────
+# parse_cnki_pubdate 测试
+# ─────────────────────────────────────────────
+class TestParseCnkiPubdate:
+    def test_parse_valid_datetime(self):
+        # 2026-05-12 07:15:34 (Beijing time UTC+8) -> 2026-05-11 23:15:34 (UTC)
+        res = cnki.parse_cnki_pubdate("2026-05-12 07:15:34")
+        assert res == "Mon, 11 May 2026 23:15:34 GMT"
+
+    def test_parse_valid_date_only(self):
+        # 2026-05-12 (Beijing time UTC+8) -> 2026-05-11 16:00:00 (UTC)
+        res = cnki.parse_cnki_pubdate("2026-05-12")
+        assert res == "Mon, 11 May 2026 16:00:00 GMT"
+
+    def test_parse_page_range_returns_none(self):
+        assert cnki.parse_cnki_pubdate("97-106") is None
+
+    def test_parse_invalid_date_returns_none(self):
+        assert cnki.parse_cnki_pubdate("not-a-date") is None
+
+    def test_parse_empty_or_none_returns_none(self):
+        assert cnki.parse_cnki_pubdate("") is None
+        assert cnki.parse_cnki_pubdate(None) is None
+
+
+# ─────────────────────────────────────────────
+# generate_rss_xml 滚动历史测试
+# ─────────────────────────────────────────────
+class TestGenerateRssXmlRolling:
+    def test_merges_existing_and_new_items(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cnki, 'CURRENT_DIR', str(tmp_path))
+        
+        # 1. 产生初始 XML，有两条文献
+        old_items = [
+            {'title': '旧文献1', 'link': 'https://example.com/old1', 'description': 'desc1', 'pubDate': 'Mon, 11 May 2026 23:15:34 GMT'},
+            {'title': '旧文献2', 'link': 'https://example.com/old2', 'description': 'desc2', 'pubDate': 'Mon, 11 May 2026 23:15:34 GMT'}
+        ]
+        cnki.generate_rss_xml(old_items, 'ROLL', '测试滚动期刊')
+        
+        # 2. 用两条新文献再次调用，其中一条与旧文献重复，一条是全新的
+        new_items = [
+            {'title': '新文献1', 'link': 'https://example.com/new1', 'description': 'desc_new1', 'pubDate': 'Tue, 12 May 2026 23:15:34 GMT'},
+            {'title': '旧文献2', 'link': 'https://example.com/old2', 'description': 'desc2_updated', 'pubDate': 'Tue, 12 May 2026 23:15:34 GMT'}
+        ]
+        cnki.generate_rss_xml(new_items, 'ROLL', '测试滚动期刊')
+        
+        # 3. 读取合并后的 XML，验证去重和顺序
+        import xml.etree.ElementTree as ET
+        xml_file = tmp_path / 'cnki_roll.xml'
+        assert xml_file.exists()
+        
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        items = root.findall(".//item")
+        
+        # 应该包含：新文献1、旧文献2（已使用最新字段更新并排在前面）、旧文献1。共 3 条。
+        assert len(items) == 3
+        assert items[0].find('title').text == '新文献1'
+        assert items[0].find('link').text == 'https://example.com/new1'
+        assert items[1].find('title').text == '旧文献2'
+        assert items[2].find('title').text == '旧文献1'
+
+    def test_limits_items_to_30(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cnki, 'CURRENT_DIR', str(tmp_path))
+        
+        # 产生 35 条新文献
+        items = []
+        for i in range(35):
+            items.append({
+                'title': f'文献{i}',
+                'link': f'https://example.com/{i}',
+                'description': f'desc{i}',
+                'pubDate': 'Mon, 11 May 2026 23:15:34 GMT'
+            })
+            
+        cnki.generate_rss_xml(items, 'LIMIT', '限额测试期刊')
+        
+        # 读取 XML 验证只有 30 条
+        import xml.etree.ElementTree as ET
+        xml_file = tmp_path / 'cnki_limit.xml'
+        assert xml_file.exists()
+        
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        items_in_xml = root.findall(".//item")
+        assert len(items_in_xml) == 30
+        assert items_in_xml[0].find('title').text == '文献0'
+        assert items_in_xml[29].find('title').text == '文献29'
