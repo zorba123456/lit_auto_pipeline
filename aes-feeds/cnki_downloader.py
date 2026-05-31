@@ -491,7 +491,6 @@ def run_web_mode(targets):
                             
                         author_tag = el.select_one('.author')
                         author = clean_text_noise(author_tag.get_text(strip=True)) if author_tag else ''
-                        desc = f"作者: {author}" if author else ""
                         
                         company_tag = el.select_one('.company')
                         company_txt = company_tag.get('title', '').strip() if company_tag else ''
@@ -501,9 +500,11 @@ def run_web_mode(targets):
                         if view_name == "网络首发":
                             enhanced_title = f"[网络首发] {raw_title}"
                             pub_date = parse_cnki_pubdate(company_txt)
+                            desc = f"<b>期数：</b>网络首发<br><b>出版日期/发布时间：</b>{company_txt}<br><b>作者：</b>{author or '未标明'}"
                         else:
                             enhanced_title = f"[当期目录] [{issue_txt}] {raw_title}"
                             pub_date = parse_cnki_pubdate(company_txt)
+                            desc = f"<b>期数：</b>{issue_txt}<br><b>出版日期/页码：</b>{company_txt}<br><b>作者：</b>{author or '未标明'}"
                             
                         if not pub_date:
                             pub_date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
