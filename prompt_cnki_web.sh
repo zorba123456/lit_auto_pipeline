@@ -22,6 +22,14 @@ if [ "$res" = "立即执行" ]; then
     DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     cd "$DIR"
     
+    # 获取任务排他锁 (如果刚好整点后台有任务在跑，则等待其完成)
+    while ! mkdir "$DIR/pipeline.lock" 2>/dev/null; do
+        sleep 2
+    done
+    
+    # 安全兜底：退出时自动清理锁和红灯状态
+    trap 'rm -rf "$DIR/pipeline.lock" "$DIR/run" 2>/dev/null' EXIT INT TERM
+    
     # 🛑 开启物理红灯 (通知 SwiftBar 状态为繁忙)
     touch "$DIR/run"
     
@@ -30,9 +38,6 @@ if [ "$res" = "立即执行" ]; then
         source venv/bin/activate
     fi
     python3 aes-feeds/cnki_downloader.py --mode web
-    
-    # 🟢 湮灭物理红灯 (恢复 SwiftBar 状态)
-    rm -f "$DIR/run" 2>/dev/null
 else
     echo "用户取消或选择暂不执行。"
 fi

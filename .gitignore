@@ -6,3 +6,31 @@ freshrss/data/
 freshrss/extensions/
 *.log
 Lit_Bot_Profile/
+
+# captcha 实验/调试文件
+*.png
+captcha_page.html
+debug_zhpf.html
+*dump.html
+live_dump.html
+mryx_dump.html
+debug_cnki.py
+check_article_count.py
+save_images.py
+dump_html.py
+dump_live_page.py
+dump_with_solver.py
+test_captcha_*.py
+test_delay.py
+test_fresh_delay.py
+test_human_drag.py
+test_slider.py
+
+# 测试/草稿
+scratch/
+
+# 浏览器 profile 目录（运行缓存）
+cnki_playwright_profile*/
+
+# 方案 C：aes-feeds/ 由独立子仓库管理，主仓库不跟踪
+aes-feeds/

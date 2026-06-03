@@ -14,14 +14,14 @@
             --bg-color: #0b0f19;
             --sidebar-bg: rgba(17, 24, 39, 0.7);
             --content-bg: rgba(17, 24, 39, 0.4);
-            --card-bg: rgba(31, 41, 55, 0.45);
-            --card-hover: rgba(55, 65, 81, 0.6);
+            --card-bg: rgba(31, 41, 55, 0.7);
+            --card-hover: rgba(55, 65, 81, 0.9);
             --accent-primary: #6366f1;
             --accent-primary-glow: rgba(99, 102, 241, 0.3);
             --accent-secondary: #06b6d4;
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
-            --border-color: rgba(255, 255, 255, 0.08);
+            --text-main: #ffffff;
+            --text-muted: #cbd5e1;
+            --border-color: rgba(255, 255, 255, 0.15);
             --success-color: #10b981;
             --warning-color: #f59e0b;
             --danger-color: #ef4444;
@@ -970,6 +970,10 @@
                 } else if (item.title.includes('[当期目录]')) {
                     badgeHTML = '<span class="article-card-badge badge-toc-text">当期目录</span>';
                     cleanTitle = item.title.replace('[当期目录]', '').strip();
+                }
+                
+                if (!cleanTitle || cleanTitle.trim() === '') {
+                    cleanTitle = '【无标题或原数据仅含标签】' + (item.title || '');
                 }
 
                 // Format pubDate nicely
