@@ -22,8 +22,14 @@
 10 */4 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh lww
 
 # ===================================================
-# 5. crontab 自动备份到项目目录（供 Cursor agent 读取）
+# 5. crontab 自动备份到项目目录（含 git push）
 # ===================================================
-5 3 * * * crontab -l > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/crontab.backup
+# 先用 diff 判断是否有变更，有变更才 commit + push，避免每天产生空commit
+5 3 * * * cd /Users/meiyiwangluokeji/coding/lit_auto_pipeline && crontab -l > crontab.backup.new && if ! diff crontab.backup crontab.backup.new >/dev/null 2>&1; then mv crontab.backup.new crontab.backup && git add crontab.backup && git commit -m "chore: auto-sync crontab backup [$(date +\%F)]" && git push; else rm -f crontab.backup.new; fi
+
+# ===================================================
+# 6. wechat_rss venv 兜底检查（每小时一次，确保自启动不出问题）
+# ===================================================
+0 * * * * /Users/meiyiwangluokeji/coding/wechat_rss/ensure_venv.sh
 
 # ================ EOF ================
