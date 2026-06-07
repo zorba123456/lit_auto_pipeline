@@ -249,6 +249,29 @@ class TestDedupLogic:
 
 
 # ─────────────────────────────────────────────
+# Web 模式验证码检测辅助函数
+# ─────────────────────────────────────────────
+class TestCaptchaHelpers:
+    def test_is_captcha_url_verify(self):
+        assert cnki.is_captcha_url("https://kns.cnki.net/verify/home?captchaType=blockPuzzle")
+
+    def test_is_captcha_url_captcha_param(self):
+        assert cnki.is_captcha_url("https://navi.cnki.net/knavi/journals/SYPF/detail?captchaId=abc")
+
+    def test_is_captcha_url_normal_journal(self):
+        assert not cnki.is_captcha_url("https://navi.cnki.net/knavi/journals/SYPF/detail?uniplatform=NZKPT")
+
+    def test_is_captcha_url_empty(self):
+        assert not cnki.is_captcha_url("")
+        assert not cnki.is_captcha_url(None)
+
+    def test_is_captcha_title(self):
+        assert cnki.is_captcha_title("安全验证")
+        assert not cnki.is_captcha_title("实用皮肤病学杂志")
+        assert not cnki.is_captcha_title("")
+
+
+# ─────────────────────────────────────────────
 # parse_cnki_pubdate 测试
 # ─────────────────────────────────────────────
 class TestParseCnkiPubdate:

@@ -17,27 +17,42 @@ end try
 
 # 如果用户点击了“立即执行”
 if [ "$res" = "立即执行" ]; then
-    echo "用户已确认，开始执行 Web 模式深度抓取..."
-    # 切换到项目根目录
     DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     cd "$DIR"
-    
+
+    LOG_DIR="$DIR/logs"
+    LOG_FILE="$LOG_DIR/cnki_web.log"
+    mkdir -p "$LOG_DIR"
+
+    cleanup() {
+        rm -rf "$DIR/pipeline.lock" "$DIR/run" 2>/dev/null
+        # Playwright 持久化上下文可能残留 Edge 进程，按 profile 路径精准清理
+        pkill -f "cnki_playwright_profile" 2>/dev/null || true
+    }
+    trap cleanup EXIT INT TERM USR1
+
+    echo "=== [cnki-web] Start: $(date) ===" | tee -a "$LOG_FILE"
+    echo "用户已确认，开始执行 Web 模式深度抓取..." | tee -a "$LOG_FILE"
+
     # 获取任务排他锁 (如果刚好整点后台有任务在跑，则等待其完成)
     while ! mkdir "$DIR/pipeline.lock" 2>/dev/null; do
+        echo "等待 pipeline.lock 释放..." | tee -a "$LOG_FILE"
         sleep 2
     done
-    
-    # 安全兜底：退出时自动清理锁和红灯状态
-    trap 'rm -rf "$DIR/pipeline.lock" "$DIR/run" 2>/dev/null' EXIT INT TERM
-    
+
     # 🛑 开启物理红灯 (通知 SwiftBar 状态为繁忙)
     touch "$DIR/run"
-    
-    # 激活环境并运行
+
+    # 激活环境并运行（无缓冲输出，写入专用日志）
     if [ -f "venv/bin/activate" ]; then
         source venv/bin/activate
     fi
-    python3 aes-feeds/cnki_downloader.py --mode web
+    export PYTHONUNBUFFERED=1
+    python3 aes-feeds/cnki_downloader.py --mode web 2>&1 | tee -a "$LOG_FILE"
+    EXIT_CODE=${PIPESTATUS[0]}
+
+    echo "=== [cnki-web] End (exit=$EXIT_CODE): $(date) ===" | tee -a "$LOG_FILE"
+    exit "$EXIT_CODE"
 else
     echo "用户取消或选择暂不执行。"
 fi
