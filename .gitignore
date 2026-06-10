@@ -5,6 +5,7 @@ __pycache__/
 freshrss/data/
 freshrss/extensions/
 *.log
+logs/
 Lit_Bot_Profile/
 
 # captcha 实验/调试文件

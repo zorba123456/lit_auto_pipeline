@@ -7,6 +7,7 @@
 
 import sys
 import os
+import time
 import tempfile
 import pytest
 
@@ -326,3 +327,49 @@ class TestCollectExistingChannelMeta:
         monkeypatch.setenv('AES_OUT_DIR', str(tmp_path))
         meta = ktn.collect_existing_channel_meta()
         assert meta == []
+
+
+# ─────────────────────────────────────────────
+# fetch_ktn_feed / master_report_status
+# ─────────────────────────────────────────────
+class TestMasterReportStatus:
+    def test_fresh_is_success(self):
+        assert ktn.master_report_status({'fresh': True}) == 'SUCCESS'
+
+    def test_stale_backup(self):
+        assert ktn.master_report_status({'fresh': False, 'stale': True}) == 'STALE'
+
+    def test_recent_backup_degraded(self):
+        assert ktn.master_report_status({'fresh': False, 'stale': False}) == 'DEGRADED'
+
+
+class TestFetchKtnFeed:
+    def test_live_fetch_success(self, monkeypatch):
+        class FakeResp:
+            status_code = 200
+            text = 'x' * 120_000
+
+        monkeypatch.setattr(ktn, 'proxy_port_open', lambda *a, **k: False)
+        monkeypatch.setattr(ktn.requests, 'get', lambda *a, **k: FakeResp())
+        text, meta = ktn.fetch_ktn_feed()
+        assert text is not None
+        assert meta['fresh'] is True
+        assert meta['route'] == 'direct'
+
+    def test_stale_backup_when_all_fail(self, tmp_path, monkeypatch):
+        backup = tmp_path / 'uwgwyb1cnivki39x.xml'
+        backup.write_text('<rss/>' * 50_000, encoding='utf-8')
+        old = time.time() - 7200
+        os.utime(backup, (old, old))
+        monkeypatch.setenv('AES_OUT_DIR', str(tmp_path))
+        monkeypatch.setattr(ktn, 'LOCAL_BACKUP_XML', str(backup))
+        monkeypatch.setattr(ktn, 'proxy_port_open', lambda *a, **k: False)
+
+        def boom(*a, **k):
+            raise ktn.requests.exceptions.Timeout('timed out')
+
+        monkeypatch.setattr(ktn.requests, 'get', boom)
+        text, meta = ktn.fetch_ktn_feed()
+        assert text is not None
+        assert meta['fresh'] is False
+        assert meta['stale'] is True
