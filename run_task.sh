@@ -1,9 +1,9 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
 # AES-INTEL 自动化管线单任务调度脚本
-# VERSION: v1.0.7-smart-gated (全局昼夜状态闸门控制机制 - 支持无感任务全天执行)
+# VERSION: v1.0.9-domestic-daytime (国内源白天调度：CNKI RSS 静默 + CMA 定时深度)
 # ------------------------------------------------------------------------------
-VERSION="v1.0.7-smart-gated"
+VERSION="v1.0.9-domestic-daytime"
 
 TASK_NAME=$1
 PROJECT_DIR="/Users/meiyiwangluokeji/coding/lit_auto_pipeline"
@@ -17,12 +17,13 @@ STATUS=$(cat "$PROJECT_DIR/.status" 2>/dev/null)
 # 第一层门禁：状态授权拦截 (全局电闸)
 # ==============================================================================
 # 1. 如果是从终端手动执行 ([ -t 0 ])，直接放行，无视 AUTO/MANUAL
-# 2. 对于不使用浏览器/不抢占前台焦点的任务（ktn, lww），无视 MANUAL 状态，全天候执行
-# 3. 对于会抢占焦点的任务（cma, cnki），如果从后台触发且状态非 AUTO，则原地秒退
+# 2. 静默任务（ktn, lww, cnki-rss）全天候执行，不受 MANUAL 限制
+# 3. CMA 浏览器深度已纳入白天定时 cron，MANUAL 下也放行（工作日 10:30/18:30）
 if [ ! -t 0 ] && [ "$STATUS" != "AUTO" ]; then
-    if [ "$TASK_NAME" != "ktn" ] && [ "$TASK_NAME" != "lww" ]; then
-        exit 0
-    fi
+    case "$TASK_NAME" in
+        ktn|lww|cnki|cma) ;;
+        *) exit 0 ;;
+    esac
 fi
 
 # 机器人自己排队防并发用的临时锁
@@ -50,7 +51,7 @@ trap 'rm -rf "$ROBOT_LOCK" "$RUN_FLAG" 2>/dev/null' EXIT INT TERM
 echo "=== [$TASK_NAME] Start ($VERSION): $(date) ===" >> "$LOG_FILE"
 
 # 只有涉及浏览器自动化（会抢占焦点）的任务，才需要清理残留的 Edge 进程
-if [ "$TASK_NAME" = "cma" ] || [ "$TASK_NAME" = "cnki" ] || [ "$TASK_NAME" = "lww" ]; then
+if [ "$TASK_NAME" = "cma" ] || [ "$TASK_NAME" = "lww" ]; then
     killall -9 "Microsoft Edge" 2>/dev/null
     sleep 2
 fi

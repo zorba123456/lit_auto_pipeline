@@ -112,6 +112,20 @@ def _newest_pubdate_from_feed_xml(path):
         return None
 
 
+def check_cnki_rss_schedule():
+    """白天应每 2h 有 CNKI RSS；日志过久未更新则告警。"""
+    hour = datetime.now().hour
+    if hour < 8 or hour > 22:
+        return []
+    path = os.path.join(LOG_DIR, "cnki.log")
+    if not os.path.exists(path):
+        return ["🔴 CNKI: 白天时段但 cnki.log 不存在"]
+    age_h = (time.time() - os.path.getmtime(path)) / 3600
+    if age_h > 3:
+        return [f"🔴 CNKI: 白天 RSS 应每 2h 运行，日志已 {age_h:.1f}h 未更新"]
+    return [f"🟢 CNKI: RSS 日志 {age_h:.1f}h 内更新（白天 2h 调度）"]
+
+
 def check_ktn_freshness():
     findings = []
     if not os.path.exists(KTN_BACKUP):
@@ -173,6 +187,7 @@ def main():
     findings = []
     for channel, log_name in CHANNEL_LOGS.items():
         findings.extend(check_log_channel(channel, log_name))
+    findings.extend(check_cnki_rss_schedule())
     findings.extend(check_ktn_freshness())
     findings.extend(check_other_sources())
 
