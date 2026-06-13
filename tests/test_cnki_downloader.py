@@ -165,6 +165,43 @@ class TestGenerateRssXml:
         content = (tmp_path / 'cnki_multi.xml').read_text(encoding='utf-8')
         assert content.count('<item>') == 3
 
+    def test_channel_title_matches_cnki_standard(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cnki, 'CURRENT_DIR', str(tmp_path))
+        articles = [self._make_article(title='[当期目录] [2026年01期] 测试')]
+        cnki.generate_rss_xml(articles, 'YLMR', '中国医疗美容')
+        content = (tmp_path / 'cnki_ylmr.xml').read_text(encoding='utf-8')
+        assert '<title>中国医疗美容 - CNKI Feeds</title>' in content
+        assert 'github.com/zorba123456/aes-feeds' in content
+        assert '<image>' not in content
+
+class TestWebScrapeHelpers:
+    def test_is_standard_web_item(self):
+        assert cnki.is_standard_web_item('[当期目录] [2026年08期] 标题')
+        assert cnki.is_standard_web_item('[网络首发] 标题')
+        assert not cnki.is_standard_web_item('纯 RSS 标题')
+
+    def test_filter_targets_single_journal(self):
+        targets = {'YLMR': {'name': '中国医疗美容'}, 'MRYX': {'name': '中国美容医学'}}
+        filtered = cnki.filter_targets(targets, 'ylmr')
+        assert list(filtered.keys()) == ['YLMR']
+
+    def test_reset_journal_feed_removes_xml_and_dedup(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cnki, 'CURRENT_DIR', str(tmp_path))
+        log_file = tmp_path / 'cnki_dedup_log.json'
+        monkeypatch.setattr(cnki, 'LOG_FILE_PATH', str(log_file))
+        articles = [{
+            'title': '[当期目录] [2026年01期] 测试论文',
+            'link': 'https://cnki.example.com/1',
+            'description': '<b>期数：</b>2026年01期',
+            'hash': cnki.generate_hash('TEST', '测试论文'),
+        }]
+        cnki.generate_rss_xml(articles, 'TEST', '测试期刊')
+        cnki.save_dedup_log({articles[0]['hash']: {'title': articles[0]['title'], 'timestamp': time.time()}})
+        removed = cnki.reset_journal_feed('TEST')
+        assert removed == 2  # cnki_test.xml + cnki_TEST_cleaned.xml 各 1 条相同 title
+        assert not (tmp_path / 'cnki_test.xml').exists()
+        assert cnki.load_dedup_log() == {}
+
 
 # ─────────────────────────────────────────────
 # [V6.4.0 新增] CMA 增量指纹逻辑测试
