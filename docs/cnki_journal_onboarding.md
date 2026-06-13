@@ -1,7 +1,7 @@
 # CNKI 期刊新增规范
 
-> **每次新增期刊，必须完整执行以下所有步骤，不得跳过任何一项。**
-> 此文件是跨平台真理之源，`.cursor/rules/` 中的同名规则引用本文件。
+> ⚠️ **每次新增期刊，必须完整执行以下所有步骤，不得跳过任何一项。**
+> 此文件是跨平台真理之源，`.cursor/rules/` 中的同名规则自动引用本文件。
 
 ---
 
@@ -16,8 +16,7 @@
 ```
 
 - `CODE`：知网期刊代码（大写，如 YLMR）
-- `web_scrape: true` **必须**填写
-- RSS cron 每 2h 只做探测，`web_scrape: true` 的期刊**不会写 XML**
+- `web_scrape: true` **必须**填写；RSS cron 对该标志的期刊**不写 XML**，仅做探测
 
 ---
 
@@ -31,27 +30,42 @@
 
 ---
 
-## 步骤 3：深度爬取（⚠️ 必须，不得用 RSS 替代）
+## 步骤 3：清理去重记录（防止历史污染）
+
+> ⚠️ **新期刊首次接入前必须执行此步**，确保去重日志里没有同代码的旧垃圾数据（尤其是误跑 RSS 留下的非标准条目）。
 
 ```bash
-cd lit_auto_pipeline
-source venv/bin/activate
+cd lit_auto_pipeline && source venv/bin/activate
 python3 aes-feeds/cnki_downloader.py --mode web --journal CODE --reset-journal CODE
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `--mode web` | 启动 Playwright 深度抓取，产出**当期目录 + 网络首发** |
-| `--journal CODE` | 只抓该期刊，不影响其他期刊 |
-| `--reset-journal CODE` | 若之前误跑过 RSS，先清掉非标准 XML 和去重记录再抓 |
-
-- 抓取过程会弹出 Edge 浏览器（非隐形）
-- 遇到滑块验证码需人工滑动，等待上限 10 分钟
-- 抓取完成后脚本自动 push 到 GitHub aes-feeds 仓库
+`--reset-journal CODE` 会做三件事：
+1. **删除** `cnki_{code}.xml` 和 `cnki_{CODE}_cleaned.xml`
+2. **从 `cnki_dedup_log.json` 移除** 该期刊所有 hash 记录
+3. 清理完成后立即进入深度抓取
 
 ---
 
-## 步骤 4：XML 格式规范
+## 步骤 4：深度爬取（⚠️ 必须，不得用 RSS 替代）
+
+> ⚠️ **RSS 模式（`--mode rss`）产出的 XML 格式不合规**，条目无 `[当期目录]` 前缀、description 为原始摘要，禁止用于初始化新期刊。
+
+步骤 3 的命令同时完成深度爬取。若需单独运行：
+
+```bash
+python3 aes-feeds/cnki_downloader.py --mode web --journal CODE
+```
+
+执行过程：
+- 弹出 Edge 浏览器（非后台隐形）导航至期刊页
+- 抓取**当期目录**（`[当期目录] [期数] 标题`）
+- 抓取**网络首发**（`[网络首发] 标题`），若该刊暂无则自动跳过
+- 抓取完成后自动 push 到 GitHub `aes-feeds` 仓库
+- 遇到滑块验证码：等待人工滑动，上限 10 分钟
+
+---
+
+## 步骤 5：XML 格式规范
 
 参考样本：`aes-feeds/cnki_MRYX_cleaned.xml`
 
@@ -60,10 +74,10 @@ python3 aes-feeds/cnki_downloader.py --mode web --journal CODE --reset-journal C
 | 字段 | 正确值 | 禁止值 |
 |------|--------|--------|
 | `title` | `{期刊名} - CNKI Feeds` | ~~`CNKI - {期刊名}`~~ |
-| `link` | `https://github.com/zorba123456/aes-feeds` | ~~navi.cnki.net URL~~ |
-| `<image>` | **不要添加** | ~~知网封面 URL~~ |
+| `link` | `https://github.com/zorba123456/aes-feeds` | ~~`navi.cnki.net` URL~~ |
+| `<image>` | **不添加** | ~~知网封面 URL~~ |
 
-> 图标由 `raw.githubusercontent.com` 的 GitHub favicon 自动提供，无需手动设置。
+图标由 `raw.githubusercontent.com` 的 GitHub favicon 自动提供。
 
 ### Item 字段
 
@@ -72,32 +86,30 @@ python3 aes-feeds/cnki_downloader.py --mode web --journal CODE --reset-journal C
 | `title` | `[当期目录] [2026年XX期] 论文标题` 或 `[网络首发] 论文标题` |
 | `description` | `<b>期数：</b>…<br><b>出版日期/页码：</b>…<br><b>作者：</b>…` |
 
-- 禁止用 RSS 原始摘要作为 description
-- 纯 RSS 产出的条目（无前缀、无结构化 description）视为**不合格**
+纯 RSS 产出的条目（无前缀、description 为摘要段落）视为**不合规**。
 
 ---
 
-## 步骤 5：Inoreader 订阅
+## 步骤 6：Inoreader 订阅
 
-**必须使用 `_cleaned` 后缀的 URL：**
+> ⚠️ **必须使用 `_cleaned` 后缀 URL**，不得使用 `cnki_xxx.xml`。
 
 ```
 https://raw.githubusercontent.com/zorba123456/aes-feeds/main/cnki_{code小写}_cleaned.xml
 ```
 
-> **原因**：Inoreader 对每个 URL 有全局缓存。若曾订阅过 `cnki_xxx.xml`（即使已删除），
-> 重订同一 URL 仍会读旧缓存，名称和图标不会更新。
-> `_cleaned` URL 对 Inoreader 是全新地址，保证拉取最新格式。
+原因：Inoreader 按 URL 全局缓存 feed 元数据。订阅过 `cnki_xxx.xml`（即使已删除）再重订，仍读旧缓存，名称和图标不更新。`_cleaned` URL 对 Inoreader 是全新地址，保证拉取最新格式。
 
 ---
 
-## 步骤 6：验收清单
+## 步骤 7：验收清单
 
-提交前逐项确认：
+提交前逐项确认，全部通过才算完成：
 
 - [ ] `cnki_targets.json` 已添加，含 `web_scrape: true`
 - [ ] `feed_reader.html` CNKI 区块已注册
-- [ ] 已执行 `--mode web`（不是 `--mode rss`）
+- [ ] 已执行 `--reset-journal CODE` 清理去重记录
+- [ ] 已执行 `--mode web`（**不是** `--mode rss`）
 - [ ] XML 条目 title 均含 `[当期目录]` 或 `[网络首发]` 前缀
 - [ ] description 含结构化三行元信息（期数、页码、作者）
 - [ ] channel `title` 为 `{期刊名} - CNKI Feeds`
