@@ -4,8 +4,6 @@ globs: aes-feeds/cnki_*.json,aes-feeds/cnki_downloader.py,feed_reader.html
 alwaysApply: true
 ---
 
-新增 CNKI 期刊前，**必须先阅读并完整执行**：
+新增 CNKI 期刊前，**立即阅读并完整执行** `AGENTS.md` 中「新增 CNKI 期刊」章节的 7 个步骤。
 
-`docs/cnki_journal_onboarding.md`
-
-规范涵盖：配置 → 深度爬取（--mode web，不得只跑 RSS）→ XML 格式 → Inoreader _cleaned URL 订阅 → 验收清单。
+核心要点：必须深度爬取（`--mode web`）、必须先清去重（`--reset-journal`）、Inoreader 用 `_cleaned` URL。
