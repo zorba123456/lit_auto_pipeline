@@ -1,79 +1,11 @@
 ---
-description: 新增 CNKI 期刊时的完整接入规范（配置、抓取、XML、Inoreader）
+description: 新增 CNKI 期刊时的完整接入规范
 globs: aes-feeds/cnki_*.json,aes-feeds/cnki_downloader.py,feed_reader.html
 alwaysApply: true
 ---
 
-# CNKI 期刊新增规范
+新增 CNKI 期刊前，**必须先阅读并完整执行**：
 
-> **每次新增期刊，必须完整执行以下所有步骤，不得跳过任何一项。**
+`docs/cnki_journal_onboarding.md`
 
-新增期刊时**严禁只跑 RSS**。标准输出来自 **`--mode web` 深度抓取**（当期目录 + 网络首发）。
-
-## 1. 配置 `aes-feeds/cnki_targets.json`
-
-```json
-"CODE": {
-    "name": "期刊中文名",
-    "rss_url": "https://rss.cnki.net/knavi/rss/CODE?pcode=CJFD,CCJD",
-    "web_scrape": true
-}
-```
-
-- `CODE`：知网期刊代码（大写，如 YLMR）
-- `web_scrape: true` 为必须项；RSS cron 仅做静默探测，**不写 XML**
-
-## 2. 注册 `feed_reader.html`
-
-在 CNKI 区块追加（filename 小写 code）：
-
-```js
-{ id: "cnki_xxx", name: "期刊名", platform: "cnki", filename: "cnki_xxx.xml" },
-```
-
-## 3. 首次抓取（必须 web 深度抓取，不得用 RSS 初始化）
-
-```bash
-cd lit_auto_pipeline && source venv/bin/activate
-python3 aes-feeds/cnki_downloader.py --mode web --journal CODE --reset-journal CODE
-```
-
-- `--reset-journal CODE`：若误跑过 RSS 产生了非标准 XML，先清掉再抓
-- 抓取会弹出 Edge 浏览器；遇验证码需人工滑动，等待最长 10 分钟
-- 抓取完成后脚本会自动 push 到 GitHub
-
-## 4. XML 输出规范（参考样本：`cnki_MRYX_cleaned.xml`）
-
-**Channel**
-
-| 字段 | 值 |
-|------|----|
-| `title` | `{期刊名} - CNKI Feeds`（例：`中国美容医学 - CNKI Feeds`） |
-| `link` | `https://github.com/zorba123456/aes-feeds` |
-| `<image>` | **不要添加**（图标由 GitHub raw favicon 提供） |
-
-**Item**
-
-- `title`: `[当期目录] [{期数}] {论文标题}` 或 `[网络首发] {论文标题}`
-- `description`: `<b>期数：</b>…<br><b>出版日期/页码：</b>…<br><b>作者：</b>…`
-- 禁止 RSS 原始摘要作为 description
-
-## 5. Inoreader 订阅（必须用 _cleaned URL）
-
-```
-https://raw.githubusercontent.com/zorba123456/aes-feeds/main/cnki_{CODE小写}_cleaned.xml
-```
-
-**必须用 `_cleaned` 后缀**——Inoreader 对每个 URL 有全局缓存，
-用 `cnki_xxx.xml` 的 URL 若曾被订阅过（包括旧格式），删掉重订依然读缓存，
-`_cleaned` URL 对 Inoreader 是全新地址，保证拉取最新格式。
-
-## 6. 验收清单（逐项确认后再交付）
-
-- [ ] `cnki_targets.json` 已添加，含 `web_scrape: true`
-- [ ] `feed_reader.html` CNKI 区块已注册
-- [ ] 已执行 `--mode web`，条目 title 含 `[当期目录]` 或 `[网络首发]`
-- [ ] description 含结构化三行元信息（期数、页码、作者）
-- [ ] channel `title` 为 `{期刊名} - CNKI Feeds`，`link` 为 GitHub repo，无 `<image>`
-- [ ] aes-feeds 已 push 到 GitHub
-- [ ] Inoreader 订阅地址使用 `_cleaned.xml` URL
+规范涵盖：配置 → 深度爬取（--mode web，不得只跑 RSS）→ XML 格式 → Inoreader _cleaned URL 订阅 → 验收清单。
