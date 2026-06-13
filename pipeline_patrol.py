@@ -174,7 +174,8 @@ def check_other_sources():
 
     findings.append(
         "ℹ️ 共性问题提示: KTN 有 429 限流风险(请求过密); "
-        "CNKI RSS timeout=15s 偏紧; CMA/LWW 受代理+浏览器稳定性影响"
+        "CNKI RSS timeout=15s 偏紧; CMA/LWW 受代理+浏览器稳定性影响; "
+        "CMA cron 会弹出 Edge 前台窗口(非后台隐形)"
     )
     return findings
 

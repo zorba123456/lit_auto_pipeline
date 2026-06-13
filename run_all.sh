@@ -1,17 +1,13 @@
 #!/bin/bash
 # ------------------------------------------------------------------------------
-# AES-INTEL 自动化管线全量心跳调度脚本
-# VERSION: v1.0.9-domestic-daytime (凌晨 AUTO 窗口 CMA 补跑；CNKI/KTN 已独立 cron)
+# AES-INTEL 历史全量心跳脚本（已废弃定时，仅保留作手动串行测试入口）
+# VERSION: v1.1.0-no-cron (各通道已独立 cron；CMA 见工作日 10:30/18:30)
 # ------------------------------------------------------------------------------
-VERSION="v1.0.9-domestic-daytime"
+VERSION="v1.1.0-no-cron"
 PROJECT_DIR="/Users/meiyiwangluokeji/coding/lit_auto_pipeline"
 
 cd "$PROJECT_DIR" || exit 1
 
-echo "🚀 开始串行分发全量文献管线心跳 ($VERSION)..."
-
-# 依次串行分发任务
-# 每个任务进入 run_task.sh 后都会先独立判断状态和 pipeline.lock，安全且不抢占资源
-./run_task.sh cma
-
-echo "✅ 全量文献管线心跳 ($VERSION) 分发完毕！"
+echo "ℹ️ run_all 已不再挂 cron。各通道请用独立 run_task.sh 或见 crontab.backup。"
+echo "   手动全量示例: ./run_task.sh ktn && ./run_task.sh cnki && ./run_task.sh cma"
+exit 0
