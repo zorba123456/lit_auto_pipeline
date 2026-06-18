@@ -34,4 +34,10 @@ scratch/
 cnki_playwright_profile*/
 
 # 方案 C：aes-feeds/ 由独立子仓库管理，主仓库不跟踪
-aes-feeds/
+aes-feeds/doubao_profile/
+yuanbao_profile/
+*.txt
+*.js
+*.json
+*.html
+
