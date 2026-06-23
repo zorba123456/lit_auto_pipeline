@@ -15,9 +15,13 @@
 5,35 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh ktn
 
 # ==============================================================================
-# 2c. CNKI RSS 静默抓取（08:00–22:00 每 2 小时，MANUAL 下也执行）
+# 2c. CNKI RSS 静默抓取 — 已暂停 (2026-06-23)
+#     原因: 全部期刊已改 web 深度爬取，run_rss_mode() 空转不写 XML（见 cnki_downloader.py）。
+#     知网数据由 §3 prompt_cnki_web.sh (10:05/17:05) 负责。
+#     恢复 RSS cron: 取消下行注释 + cnki_downloader.py run_rss_mode() 去掉首行 return。
+#     手动试跑 RSS 仍可用: ./run_task.sh cnki
 # ==============================================================================
-15 8-22/2 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh cnki
+# 15 8-22/2 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh cnki
 
 # ==============================================================================
 # 2d. CMA 深度抓取（工作日 10:30 / 18:30，正刊目录 + 优先出版）

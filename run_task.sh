@@ -18,7 +18,8 @@ STATUS=$(cat "$PROJECT_DIR/.status" 2>/dev/null)
 # ==============================================================================
 # 1. 如果是从终端手动执行 ([ -t 0 ])，直接放行，无视 AUTO/MANUAL
 # 2. MANUAL 下仍允许 cron 触发，分两类（「放行」≠「静默」）：
-#    - 真·静默（无浏览器前台）：ktn, lww, cnki（仅 --mode rss）
+#    - 真·静默（无浏览器前台）：ktn, lww
+#    - cnki RSS cron 已暂停（2026-06-23）；手动 ./run_task.sh cnki 仍可跑 --mode rss 兜底
 #    - 前台浏览器（会弹 Edge，headless=False）：cma（工作日 10:30/18:30）
 if [ ! -t 0 ] && [ "$STATUS" != "AUTO" ]; then
     case "$TASK_NAME" in
@@ -66,6 +67,7 @@ source venv/bin/activate
 touch "$RUN_FLAG"
 
 if [ "$TASK_NAME" = "cnki" ]; then
+    # RSS 模式保留作兜底；cron 已暂停，日常由 prompt_cnki_web.sh --mode web 更新
     python3 "aes-feeds/${TASK_NAME}_downloader.py" --mode rss 2>&1 | tee -a "$LOG_FILE"
 else
     python3 "aes-feeds/${TASK_NAME}_downloader.py" 2>&1 | tee -a "$LOG_FILE"
