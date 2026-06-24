@@ -35,9 +35,16 @@ cnki_playwright_profile*/
 
 # 方案 C：aes-feeds/ 由独立子仓库管理，主仓库不跟踪
 aes-feeds/doubao_profile/
+gemini_playwright_profile/
 yuanbao_profile/
 *.txt
 *.js
 *.json
 *.html
+
+# brief RPA prompts / style guide（例外于上方通配）
+!prompts/
+!prompts/**
+!data/
+!data/style_guide.json
 
