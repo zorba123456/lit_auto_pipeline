@@ -1,64 +1,74 @@
 {
   "version": 1,
-  "updated_at": "2026-06-23",
+  "updated_at": "2026-06-24",
   "title": "AES 中文表述规范",
   "description": "适用于标题翻译、AI 导读、摘要直译等一切中文生成环节。8300 文档维护编辑；流水线经 style_guide_loader.py 读取本 JSON",
   "word_variants": [
     {
       "id": "core",
-      "limit": ["核心"],
-      "prefer": ["主要", "关键", "要点", "重点", "首要"],
+      "limit": [
+        "核心"
+      ],
+      "prefer": [
+        "主要、关键、要点、重点、首要"
+      ],
       "note": "避免段段出现「核心」；按语境选用同义表述"
     },
     {
       "id": "crucial",
-      "limit": ["至关重要", "极其重要", "尤为关键"],
-      "prefer": ["十分重要", "尤为值得注意", "需重点关注", "影响较大"],
+      "limit": [
+        "至关重要"
+      ],
+      "prefer": [
+        "十分重要、尤为值得注意、需重点关注、影响较大"
+      ],
       "note": "降调 AI 惯用强调语"
     },
     {
       "id": "although",
-      "limit": [],
-      "prefer": ["虽然", "尽管"],
+      "limit": [
+        "尽管"
+      ],
+      "prefer": [
+        "虽然、尽管"
+      ],
       "note": "二者可互换，同篇内勿机械重复同一连接词"
     },
     {
-      "id": "innovation",
-      "limit": ["创新性", "颠覆性", " groundbreaking"],
-      "prefer": ["改良点", "新做法", "与既往方案的区别", "作者强调的贡献"],
-      "note": "导读中写「作者认为/本文报告」，勿下「国际首创」等无法核验判断"
-    },
-    {
-      "id": "significant",
-      "limit": ["显著", "明显"],
-      "prefer": ["差异有统计学意义", "组间差异为…", "较对照组…（附 P 值或 CI）"],
-      "note": "有数据时用具体数字替代空泛「显著」"
-    },
-    {
       "id": "demonstrate",
-      "limit": ["展示了", "揭示了", "凸显了"],
-      "prefer": ["显示", "表明", "提示", "结果为"],
-      "note": "减少论文式套话"
+      "limit": [
+        "最大化"
+      ],
+      "prefer": [
+        "尽量"
+      ],
+      "note": "maximize 直译为 最大化 比较生硬 应选择适应上下文的地道表述 如 尽量"
     }
   ],
   "terminology": [
     {
       "id": "ha",
-      "avoid": ["玻尿酸"],
+      "avoid": [
+        "玻尿酸"
+      ],
       "prefer": "透明质酸",
       "english": "hyaluronic acid",
       "note": "首次出现写「透明质酸（hyaluronic acid）」；具体商品名保留英文/注册名"
     },
     {
       "id": "botulinum",
-      "avoid": ["肉毒素", "肉毒"],
+      "avoid": [
+        "肉毒素、肉毒"
+      ],
       "prefer": "肉毒毒素",
       "english": "botulinum toxin",
       "note": "首次出现可写「肉毒毒素（botulinum toxin）」"
     },
     {
       "id": "prp",
-      "avoid": ["富血小板血浆疗法"],
+      "avoid": [
+        "富血小板血浆疗法"
+      ],
       "prefer": "富血小板血浆（PRP）",
       "english": "platelet-rich plasma",
       "note": "与原文 PLATELET-RICH PLASMA 一致时可保留 PRP"
@@ -72,14 +82,18 @@
     },
     {
       "id": "filler",
-      "avoid": ["填充物"],
+      "avoid": [
+        "填充物"
+      ],
       "prefer": "填充剂",
       "english": "filler",
       "note": "指注射用产品时"
     },
     {
       "id": "adverse_event",
-      "avoid": ["副作用"],
+      "avoid": [
+        "副作用"
+      ],
       "prefer": "不良事件",
       "english": "adverse event",
       "note": "临床文献语境优先「不良事件」；口语化场景可酌情"

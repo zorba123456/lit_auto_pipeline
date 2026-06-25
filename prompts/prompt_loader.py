@@ -7,6 +7,18 @@ import os
 
 def load_structured_prompt(prompt_type: str) -> str:
     base = os.path.join(os.path.dirname(__file__))
+    if prompt_type == "open":
+        path = os.path.join(base, "brief_open.txt")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Prompt file not found: {path}")
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip() + "\n"
+    if prompt_type == "innovation":
+        path = os.path.join(base, "brief_innovation_audit.txt")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Prompt file not found: {path}")
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip() + "\n"
     if prompt_type == "brief":
         rpa_compact = os.path.join(base, "brief_rpa.txt")
         if os.path.exists(rpa_compact):

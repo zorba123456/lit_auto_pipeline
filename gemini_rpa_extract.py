@@ -73,6 +73,29 @@ async def select_model(page, model_label: str = DEFAULT_MODEL_LABEL) -> None:
     print(f"⚠️ 未找到 {model_label!r}，沿用下拉当前项")
 
 
+async def get_gemini_visible_model(page) -> str:
+    """读取输入区药丸显示的模型（Flash / Pro 等）。"""
+    try:
+        label = await page.evaluate(
+            """() => {
+                const re = /^(Flash|Fast|Pro|Gemini[\\s\\d.]*Pro|Gemini[\\s\\d.]*Flash)$/i;
+                const vh = window.innerHeight;
+                const cands = [];
+                for (const el of document.querySelectorAll('button, [role="button"], span')) {
+                    const r = el.getBoundingClientRect();
+                    if (r.top < vh * 0.45 || r.height > 48) continue;
+                    const t = (el.innerText || '').trim();
+                    if (re.test(t)) cands.push({ t, top: r.top });
+                }
+                cands.sort((a, b) => b.top - a.top);
+                return cands.length ? cands[0].t : '';
+            }"""
+        )
+        return label or "unknown"
+    except Exception:
+        return "unknown"
+
+
 async def _click_compose_plus(page) -> bool:
     """输入框左侧 + 按钮，展开 Upload files 等菜单。"""
     textbox = page.get_by_role("textbox", name=re.compile(r"Ask Gemini|prompt|Gemini|问问", re.I))
@@ -119,8 +142,19 @@ async def upload_pdf(page, pdf_path: str) -> None:
     print(f"📄 上传 PDF: {pdf_path}")
     uploaded = False
 
+    # 优先：隐藏 file input（比菜单更稳）
+    try:
+        fi = page.locator('input[type="file"]')
+        if await fi.count() > 0:
+            await fi.first.set_input_files(pdf_path)
+            uploaded = True
+            await page.wait_for_timeout(800)
+            print("👆 已通过 input[type=file] 上传")
+    except Exception as e:
+        print(f"   …file input 失败: {e}")
+
     # Gemini 首页/对话页：点 + → Upload files → 选文件
-    if await _click_compose_plus(page):
+    if not uploaded and await _click_compose_plus(page):
         for label in ("Upload files", "Upload file", "上传文件"):
             try:
                 item = page.get_by_role("menuitem", name=re.compile(label, re.I))
@@ -146,13 +180,33 @@ async def upload_pdf(page, pdf_path: str) -> None:
                 await fi.first.set_input_files(pdf_path)
                 uploaded = True
                 await page.wait_for_timeout(800)
+                print("👆 已通过 input[type=file] 上传")
         except Exception:
             pass
+
+    if not uploaded and await _click_compose_plus(page):
+        await page.wait_for_timeout(500)
+        for label in ("Upload files", "Upload file", "上传文件"):
+            try:
+                item = page.get_by_role("menuitem", name=re.compile(label, re.I))
+                if await item.count() == 0:
+                    item = page.get_by_text(label, exact=True)
+                if await item.count() > 0:
+                    print(f"👆 菜单重试: {label}")
+                    async with page.expect_file_chooser(timeout=12000) as fc_info:
+                        await item.first.click(timeout=5000)
+                    fc = await fc_info.value
+                    await fc.set_files(pdf_path)
+                    uploaded = True
+                    await page.wait_for_timeout(500)
+                    break
+            except Exception as e:
+                print(f"   …{label} 重试失败: {e}")
 
     if not uploaded:
         raise RuntimeError("未能打开 + 菜单并选择 Upload files")
 
-    await wait_pdf_attached(page, pdf_path)
+    await wait_pdf_attached(page, pdf_path, uploaded_via_chooser=uploaded)
 
 
 async def _compose_has_pdf(page, pdf_basename: str) -> bool:
@@ -191,19 +245,45 @@ async def _compose_has_pdf(page, pdf_basename: str) -> bool:
     )
 
 
-async def wait_pdf_attached(page, pdf_path: str, max_sec: int = 5) -> None:
-    """PDF 出现在输入区即继续；Gemini 可在发送后后台解析全文。"""
+async def _page_has_pdf(page, pdf_basename: str) -> bool:
+  """全文检索 PDF 文件名（输入区 chip 或对话区）。"""
+  import os
+
+  stem = os.path.splitext(pdf_basename)[0]
+  short = stem[:20]
+  return await page.evaluate(
+      """({ basename, stem, short }) => {
+          const body = document.body.innerText || '';
+          const lower = body.toLowerCase();
+          const b = basename.toLowerCase();
+          if (lower.includes(b)) return true;
+          if (stem.length >= 8 && lower.includes(stem.toLowerCase().slice(0, 24))) return true;
+          if (short.length >= 8 && lower.includes(short.toLowerCase())) return true;
+          return /\\.pdf/i.test(body);
+      }""",
+      {"basename": pdf_basename, "stem": stem, "short": short},
+  )
+
+
+async def wait_pdf_attached(
+    page, pdf_path: str, max_sec: int = 20, *, uploaded_via_chooser: bool = False
+) -> None:
+    """PDF 出现在页面即继续；chooser 已成功则宽限等待。"""
     import os
 
     basename = os.path.basename(pdf_path)
     print(f"⏳ 等待 PDF 附件（最多 {max_sec}s，不等全文解析）…")
     for tick in range(max_sec * 3):
         await page.wait_for_timeout(333)
-        if await _compose_has_pdf(page, basename):
-            print(f"✅ PDF 已附在输入区（约 {tick * 0.33:.1f}s）")
-            await page.wait_for_timeout(300)
+        if await _compose_has_pdf(page, basename) or await _page_has_pdf(page, basename):
+            print(f"✅ PDF 已确认（约 {tick * 0.33:.1f}s）")
+            await page.wait_for_timeout(1200)
             return
-    print("ℹ️ 上传后短等结束，继续输入 prompt")
+    if uploaded_via_chooser:
+        print("⚠️ 未检测到文件名 chip，但文件已选入；额外等待 3s 后继续")
+        await page.wait_for_timeout(3000)
+        return
+    raise RuntimeError(f"未在页面确认 PDF 附件: {basename}")
 
 
 def _normalize_share_url(text: str) -> str | None:
@@ -366,8 +446,13 @@ async def get_conversation_text(page) -> str:
         return ""
 
 
-def extract_gemini_brief(text: str) -> str:
+def extract_gemini_brief(text: str, *, structured: bool = True) -> str:
     """Gemini 会话页抠导读：跳过用户 prompt，取助手回复段。"""
+    if not structured:
+        from prompts.open_brief_utils import extract_after_open_prompt
+
+        return _strip_gemini_tail_ui(extract_after_open_prompt(text))
+
     got = extract_brief_from_main_text(text)
     if got:
         return got
@@ -691,11 +776,15 @@ async def wait_for_header_overflow_menu(page, timeout_sec: int = 30) -> bool:
     return False
 
 
-async def wait_for_brief_reply(page, min_chars: int = 200, timeout_sec: int = 240) -> str:
+async def wait_for_brief_reply(
+    page, min_chars: int = 200, timeout_sec: int = 240, *, structured: bool = True
+) -> str:
     """等待导读完成。移植 doubao wait_for_assistant_reply：只看页面字数是否还在增长。
 
     ⋮ 在流式开始时即出现，不能作为完成信号；完成 = 导读 extract 达标 + 页面字数 stable≥8（≈4s）。
     """
+    from prompts.open_brief_utils import OPEN_MIN_CHARS, open_brief_is_ready
+
     print(f"⏳ 等待 Gemini 导读（最长 {timeout_sec}s，豆包同款：页面字数稳定）…")
     last_page_len = 0
     stable = 0
@@ -704,20 +793,25 @@ async def wait_for_brief_reply(page, min_chars: int = 200, timeout_sec: int = 24
     for tick in range(timeout_sec * 2):
         await page.wait_for_timeout(500)
         text = await get_conversation_text(page)
-        extracted = extract_gemini_brief(text)
+        extracted = extract_gemini_brief(text, structured=structured)
+        ready_fn = _brief_is_ready if structured else open_brief_is_ready
+        min_len = min_chars if structured else OPEN_MIN_CHARS
 
-        if extracted and len(extracted) >= min_chars:
+        if extracted and len(extracted) >= min_len:
             best = extracted
             if tick % 4 == 0:
-                print(
-                    f"   …已捕获导读 {len(extracted)} 字 / {_brief_section_count(extracted)} 节"
-                )
+                if structured:
+                    print(
+                        f"   …已捕获导读 {len(extracted)} 字 / {_brief_section_count(extracted)} 节"
+                    )
+                else:
+                    print(f"   …已捕获导读 {len(extracted)} 字")
 
         cur_len = len(text)
         if cur_len > last_page_len:
             last_page_len = cur_len
             stable = 0
-        elif best and _brief_is_ready(best):
+        elif best and ready_fn(best):
             still_gen = await _gemini_still_generating(page)
             if still_gen:
                 stable = 0
@@ -726,26 +820,35 @@ async def wait_for_brief_reply(page, min_chars: int = 200, timeout_sec: int = 24
             else:
                 stable += 1
                 if stable >= 8 and tick > 10:
-                    print(
-                        f"✅ 导读完成（{len(best)} 字，{_brief_section_count(best)} 节，"
-                        f"页面 {cur_len} 字稳定 {stable * 0.5:.0f}s）"
-                    )
+                    if structured:
+                        print(
+                            f"✅ 导读完成（{len(best)} 字，{_brief_section_count(best)} 节，"
+                            f"页面 {cur_len} 字稳定 {stable * 0.5:.0f}s）"
+                        )
+                    else:
+                        print(f"✅ 开放导读完成（{len(best)} 字）")
                     return best
 
         if (
             tick > 20
             and extracted
-            and _brief_is_ready(extracted)
+            and ready_fn(extracted)
             and stable >= 4
             and not await _gemini_still_generating(page)
         ):
-            print(f"✅ 导读已就绪（{len(extracted)} 字，{_brief_section_count(extracted)} 节）")
+            if structured:
+                print(f"✅ 导读已就绪（{len(extracted)} 字，{_brief_section_count(extracted)} 节）")
+            else:
+                print(f"✅ 开放导读已就绪（{len(extracted)} 字）")
             return extracted
 
-    if best and _brief_section_count(best) >= 2:
-        print(
-            f"⚠️ 超时，使用最佳导读（{len(best)} 字，{_brief_section_count(best)} 节）"
-        )
+    if best:
+        if structured and _brief_section_count(best) >= 2:
+            print(
+                f"⚠️ 超时，使用最佳导读（{len(best)} 字，{_brief_section_count(best)} 节）"
+            )
+        elif not structured and len(best) >= OPEN_MIN_CHARS:
+            print(f"⚠️ 超时，使用最佳开放导读（{len(best)} 字）")
     return best
 
 

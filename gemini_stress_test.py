@@ -64,11 +64,12 @@ async def run_one(pdf_path: Path, model: str) -> dict:
     try:
         from fetch_gemini_share_brief import fetch_gemini_share_brief
 
-        brief, share_url = await process_pdf_with_gemini(
+        brief, share_url, tier_meta = await process_pdf_with_gemini(
             str(pdf_path),
             model_label=model,
             verify_share_extract=False,
         )
+        row.update(tier_meta)
         row["share_url"] = share_url
         row["session_brief_len"] = len(brief or "")
         row["ok_share"] = bool(share_url)

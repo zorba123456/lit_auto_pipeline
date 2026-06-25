@@ -19,6 +19,7 @@ from gemini_rpa_extract import (
     _brief_is_ready,
     _brief_section_count,
     get_conversation_text,
+    get_gemini_visible_model,
     get_share_link,
     select_model,
     send_prompt,
@@ -26,13 +27,16 @@ from gemini_rpa_extract import (
     upload_pdf,
     wait_for_brief_reply,
 )
+from rpa_tier import make_tier_meta
 
 GEMINI_PROFILE = "./gemini_playwright_profile"
 
 
 def _park_chrome_window() -> None:
-    """挪到屏幕外；主要靠 --window-position + JS。osascript 需辅助功能权限，失败则静默跳过。"""
+    """勿移动用户主 Chrome 窗口。仅当显式开启 GEMINI_RPA_OSASCRIPT_PARK=1 时才尝试 osascript。"""
     if os.environ.get("GEMINI_RPA_FOREGROUND") == "1":
+        return
+    if os.environ.get("GEMINI_RPA_OSASCRIPT_PARK") != "1":
         return
     x = int(os.environ.get("GEMINI_RPA_WINDOW_X", "2400"))
     y = int(os.environ.get("GEMINI_RPA_WINDOW_Y", "80"))
@@ -84,14 +88,16 @@ async def process_pdf_with_gemini(
     prompt: str | None = None,
     model_label: str = DEFAULT_MODEL_LABEL,
     verify_share_extract: bool = True,
-) -> tuple[str, str | None]:
-    """返回 (reading_note_zh, gemini_share_url)。"""
+    structured_brief: bool = True,
+) -> tuple[str, str | None, dict]:
+    """返回 (reading_note_zh, gemini_share_url, tier_meta)。"""
     if prompt is None:
         prompt = load_structured_prompt("brief")
 
     abs_pdf = os.path.abspath(pdf_path)
     session_brief = ""
     share_url: str | None = None
+    tier_meta: dict = {}
 
     async with async_playwright() as p:
         browser = await p.chromium.launch_persistent_context(
@@ -112,9 +118,13 @@ async def process_pdf_with_gemini(
         await select_model(page, model_label)
         await upload_pdf(page, abs_pdf)
         await send_prompt(page, prompt)
-        session_brief = await wait_for_brief_reply(page)
+        session_brief = await wait_for_brief_reply(page, structured=structured_brief)
 
-        if session_brief and _brief_is_ready(session_brief):
+        if session_brief and (
+            _brief_is_ready(session_brief)
+            if structured_brief
+            else len(session_brief) >= 400
+        ):
             print(f"📎 导读 {len(session_brief)} 字，准备分享…")
             share_url = await get_share_link(page)
         elif session_brief:
@@ -132,6 +142,14 @@ async def process_pdf_with_gemini(
                 f.write(conv)
             print(f"📋 导读为空，已 dump: {debug_path} ({len(conv)} 字)")
 
+        tier_observed = await get_gemini_visible_model(page)
+        tier_meta = make_tier_meta(
+            channel="gemini",
+            tier_requested=model_label,
+            tier_observed=tier_observed,
+            extra={"tier_phase": "生成完成后"},
+        )
+
         await browser.close()
 
     thread_brief = ""
@@ -144,7 +162,7 @@ async def process_pdf_with_gemini(
     if thread_brief and session_brief and thread_brief != session_brief:
         print(f"ℹ️ session={len(session_brief)} 字 share={len(thread_brief)} 字")
 
-    return reading_note, share_url
+    return reading_note, share_url, tier_meta
 
 
 def main():
@@ -175,7 +193,7 @@ def main():
         print(f"❌ 不存在: {abs_pdf}")
         raise SystemExit(1)
 
-    brief, share = asyncio.run(
+    brief, share, _tier = asyncio.run(
         process_pdf_with_gemini(
             abs_pdf,
             model_label=args.model,

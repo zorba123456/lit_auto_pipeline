@@ -32,11 +32,13 @@ scratch/
 
 # 浏览器 profile 目录（运行缓存）
 cnki_playwright_profile*/
-
-# 方案 C：aes-feeds/ 由独立子仓库管理，主仓库不跟踪
-aes-feeds/doubao_profile/
+doubao_profile/
 gemini_playwright_profile/
 yuanbao_profile/
+
+# 方案 C：aes-feeds/ 由独立子仓库管理，主仓库不跟踪
+aes-feeds/
+
 *.txt
 *.js
 *.json
@@ -48,3 +50,8 @@ yuanbao_profile/
 !data/
 !data/style_guide.json
 
+# API 比选密钥（勿提交）
+.env.api_compare
+config/api_compare.env
+
+prompts/__pycache__/
