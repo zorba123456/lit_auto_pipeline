@@ -57,8 +57,8 @@ fi
 
 # 只有涉及浏览器自动化（会抢占焦点）的任务，才需要清理残留的 Edge 进程
 if [ "$TASK_NAME" = "cma" ] || [ "$TASK_NAME" = "lww" ]; then
-    killall -9 "Microsoft Edge" 2>/dev/null
-    sleep 2
+    killall "Microsoft Edge" 2>/dev/null
+    sleep 3
 fi
 
 source venv/bin/activate
