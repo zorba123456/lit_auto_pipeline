@@ -52,8 +52,6 @@
 5 3 * * * cd /Users/meiyiwangluokeji/coding/lit_auto_pipeline && crontab -l > crontab.backup.new && if ! diff crontab.backup crontab.backup.new >/dev/null 2>&1; then mv crontab.backup.new crontab.backup && git add crontab.backup && git commit -m "chore: auto-sync crontab backup [$(date +\%F)]" && git push; else rm -f crontab.backup.new; fi
 
 # ===================================================
-# 6. wechat_rss venv 兜底检查（每小时一次，确保自启动不出问题）
 # ===================================================
-0 * * * * /Users/meiyiwangluokeji/coding/wechat_rss/ensure_venv.sh
 
 # ================ EOF ================
