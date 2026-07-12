@@ -43,7 +43,7 @@
 # 4. LWW 独立任务
 # ==============================================================================
 # 错峰执行：延后10分钟，避开整点锁冲突
-10 */4 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh lww
+10 8,12,16,20 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh lww
 
 # ===================================================
 # 5. crontab 自动备份到项目目录（含 git push）
