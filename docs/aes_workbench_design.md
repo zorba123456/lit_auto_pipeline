@@ -2292,6 +2292,14 @@ Plastic and Reconstructive Surgery. 157(6):829e-830e, June 2026. doi: 10.1097/PR
 | D26 | 🟢 | 中间页短导读 prompt | **8300** 文档维护 → `reading-note-prompts.html`（`_shell_brief` + `reading_note_brief`） |
 | D27 | 🟡 | 导读 `reading_note_zh` 产链 | **双轨**（2026-06-24 修订）：**豆包**仅 chip 产 `doubao_read_url`（公开 thread **不得**含定制 prompt）；**导读**走 **Gemini Web RPA**（`gemini_rpa.py` · brief + 3.5 Flash → share 抠字）。豆包 thread 不再作导读源 |
 | D28 | 🟢 | **中文表述规范** | **8300** 侧边栏「文档维护」→ `aes-writing-style.html` → `data/style_guide.json` |
+| D38 | 🟢 | **术语：元数据 vs 基础元数据** | **元数据**=总称（含 PDF 路径 + L3）；**基础元数据**=不含全文 PDF 的 `entries` L1 字段。XML 仅为上游快照，前端真源=`entries`（session 2026-06-25） |
+| D39 | ⬜ | AI 筛选被拒条目的编辑面 | 被拒默认不进 `entries` → 编辑在 **Miniflux/源池** 或 Console **排除夹恢复** 处理；通过后字段在 AES 可改 |
+| D40 | ⬜ | Zotero 与 AES 元数据冲突 | 建议：**AES entries 为主**；Zotero 仅对齐 `article_key` + 提供 PDF 附件；Connector 漏 PDF → D11 上传/重试 SOP |
+| D41 | 🟢 | **文献补充视频** | 不自托管；`has_video` + `video_links[]` 入 **基础元数据**；PDF 规则抽取 + 跳转官网（LWW/Elsevier/Springer/OUP 分策略）。详 `AES-Intel/09-讨论纪要-文献视频机制.md` · session `2026-06-25_metadata_pdf_workflow.md` §12 |
+| D42 | ✅ | **`prs_video` 独立入流** | 每条视频 **独立 `entries`**（`lww_video:{v}`）；**不对齐** `prs_*` 论文流；**不做**导读/豆包；中间页 = 标题 + description + 视频外链 |
+| D43 | 🟢 | **PDF 获取默认路径** | **不用 Zotero 进产线**；含权页 **`pdf-router` 插件**（≠ RSS 阅读器）→ 上传/OSS → watcher 对齐 `entries`；自建阅读器=`feed_reader`+Miniflux |
+| D44 | 🟢 | **真源库部署** | **开发**：PDF+DB 本地；**产线**：DB 在 mini API，PDF **阿里云 OSS 私有桶** + DB 日备同桶；实现 `pdf_store` 抽象便于切换 |
+| D45 | 🟢 | **盲下 PDF 入流** | inbox 无条目 → 抽 DOI/PMID/PII → CrossRef 补元信息 → 建 `entries`（`ingest_source=blind_pdf`，`screening_status=screening_pending`）→ 挂 PDF；抽不到 ID → `pdf_unmatched/`；**不**默认进读者流，待 tag_worker |
 | D19 | ✅ | 训练样本门槛 | **已定**：覆盖主要标签类、宁多勿少；无 30+30 硬门槛（C21） |
 | D20 | ⬜ | AI 自动直写置信度阈值 | 建议：0.85；以下进 M8 |
 
@@ -2301,6 +2309,12 @@ Plastic and Reconstructive Surgery. 157(6):829e-830e, June 2026. doi: 10.1097/PR
 |------|------|
 | 2026-06-23 | **§21.2.1 模板 F**：结构学习解构新对话接续（勿 @ 旧对话） |
 | 2026-06-23 | **§1.6**：结构学习执行清单；PaperSorter 纳入序 3，对照 §2.5 打标训练 |
+| 2026-06-26 | **D45**：盲下 PDF → watcher 自动建档 + CrossRef 补全 + `screening_pending` |
+| 2026-06-25 | **D43–D44 修订**：pdf-router（非 inoreader）；PDF 主存 OSS；mini 轻磁盘；自建 RSS=feed_reader+Miniflux |
+| 2026-06-25 | **D42 修订**：`prs_video` 一条一 entries，**不**对齐母文献论文流 |
+| 2026-06-25 | **D42 定**：`prs_video` 独立入流、跳过 L3 |
+| 2026-06-25 | **D41**：文献视频链接并入基础元数据；不自托管、跳转官网；PDF 规则抽取。续 AES-Intel [文献视频分享](fb0660d4-7950-497b-936d-201b9266c136) |
+| 2026-06-25 | **D38–D40**：元数据/基础元数据术语；筛选编辑在源池；Zotero=PDF 加速器、entries 为元数据真源。详见 `_context/sessions/2026-06-25_metadata_pdf_workflow.md` |
 | 2026-06-24 | **D27 双轨**：豆包链仅 chip（公开）；导读 Gemini Web + 自定义 brief；豆包 thread 泄露 prompt 问题 |
 | 2026-06-24 | **D27 单轨**：导读+豆包链均走豆包 RPA；thread 抠 `reading_note_zh`；Gemini RPA 双轨暂缓；trade-off 实测后再议 |
 | 2026-06-24 | **8300 文档维护**：`doc_registry.json` + 侧边栏分组；表述规范等维护页统一入口 |

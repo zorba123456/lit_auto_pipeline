@@ -50,8 +50,16 @@ aes-feeds/
 !data/
 !data/style_guide.json
 
-# API 比选密钥（勿提交）
-.env.api_compare
-config/api_compare.env
+# 本地工作流数据（不入库）
+data/aes_workflow.db
+data/pdf/
+data/pdf_inbox/
+data/pdf_unmatched/
 
 prompts/__pycache__/
+
+# 敏感配置及本地环境
+config/
+.env*
+lww_browser_profile/
+

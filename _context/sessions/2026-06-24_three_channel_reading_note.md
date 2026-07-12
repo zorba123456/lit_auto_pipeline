@@ -829,3 +829,53 @@ PDF 就绪
 
 - DeepSeek 导读：典型 **< ¥0.01/篇**；¥100 充值可用很久
 - 豆包链：Web **$0 按量**；占用 Chrome ~1–3 min/篇
+
+---
+
+## 16. 会话收尾 · 新对话交接（2026-06-25）
+
+### A. 本对话完成项
+
+| 项 | 状态 |
+|----|------|
+| 三轨定型（深读/导读/插图） | ✅ §15 · C37 |
+| 模型比选收束（开放导读 + API + 创新交叉验证） | ✅ §9–§14 |
+| DeepSeek 成本估算 | ✅ ~¥0.009/篇导读 |
+| `batch_worker.py` | ✅ 导读轨已测（重睑 13s）；豆包轨待本机全轨跑 |
+| `innovation_round2_quick.py` + v2 prompt | ✅ 证 API 强制 PMID 易编造 |
+| git push `81ce8ee` | ✅ |
+
+### B. 产出路径（本机 · 未入库）
+
+- 比选导读：`~/Desktop/PDFs/*_open_reading_note.txt`、`*_api_*_open_reading_note.txt`
+- 创新审计：`~/Desktop/PDFs/*_innovation_*.txt`
+- batch_worker：`{stem}_reading_note_zh.txt`、`{stem}.aes_l3.json`
+- 日志：`logs/batch_worker/`、`logs/open_compare_api/`、`logs/innovation_compare/`
+
+### C. 关键结论（给新对话，勿重比选）
+
+1. **导读赢家**：DeepSeek V4 Flash API（非 Web Gemini）
+2. **深读**：仅豆包 Web chip；禁止自定义 prompt 上公开 thread
+3. **API 全通道抽文本**，不读图；插图单独本地抽
+4. **交叉验证**≠导读 MVP；遮 ref 后 API 会编造 PMID
+5. **Gemini API 免费档**可作零账单备选；DeepSeek 无免费额度但极便宜
+
+### D. 下一对话建议起手
+
+**路径 A · 产线打通**  
+`batch_worker` 全轨验收 → entries/XML 注入 `reading_note_zh` + `doubao_read_url`
+
+**路径 B · 头图**  
+`pdf_figure_extract.py`（pymupdf）→ `figure_candidates` → Console 选图 UI 规格（D25）
+
+**路径 C · 创新查新 P2+**  
+Gemini Web 遮 ref 复测 + PubMed 自动校验脚本
+
+### E. 复制块（新 chat 首条）
+
+```
+Read AES_PIPELINE_HANDOFF.md §1、§6 + session §15–§16。
+L3 已定：豆包 Web 深读 + DeepSeek API 导读 + 本地抽图（待做）。
+batch_worker 已提交 81ce8ee；导读轨已测，待全轨+注入。
+你想先做：A 注入 / B 抽图 / C 查新？
+```
