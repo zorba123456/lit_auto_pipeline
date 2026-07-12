@@ -63,3 +63,4 @@ config/
 .env*
 lww_browser_profile/
 
+network_dump.jsonl
