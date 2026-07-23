@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS entries (
   yuanbao_read_url TEXT,
   has_video INTEGER DEFAULT 0,
   screening_status TEXT,
-  related_wechat_links TEXT,
+  discovery_type TEXT DEFAULT 'rss_feed',
+  wechat_discovery_sources TEXT,
+  submitter_role TEXT,
+  review_status TEXT DEFAULT 'auto_approved',
   ingest_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

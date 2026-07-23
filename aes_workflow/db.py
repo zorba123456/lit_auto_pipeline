@@ -28,6 +28,14 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE entries ADD COLUMN yuanbao_read_url TEXT")
     if "related_wechat_links" not in cols:
         conn.execute("ALTER TABLE entries ADD COLUMN related_wechat_links TEXT")
+    if "discovery_type" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN discovery_type TEXT DEFAULT 'rss_feed'")
+    if "wechat_discovery_sources" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN wechat_discovery_sources TEXT")
+    if "submitter_role" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN submitter_role TEXT")
+    if "review_status" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN review_status TEXT DEFAULT 'auto_approved'")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_entries_screening ON entries(screening_status)"
     )
