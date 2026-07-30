@@ -68,3 +68,4 @@
 # IMA 知识库扫描通知（每天 11/13/15/17 点）
 
 # AES Filter — 医美筛选+打标（每 15 分钟）
+*/15 * * * * /Users/meiyiwangluokeji/coding/aes-workbench/.venv/bin/python3 /Users/meiyiwangluokeji/coding/aes-workbench/rss_aggregator.py >> /Users/meiyiwangluokeji/coding/aes-workbench/data/rss_aggregator.log 2>&1
