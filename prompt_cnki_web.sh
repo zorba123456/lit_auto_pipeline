@@ -3,7 +3,34 @@
 # Project: lit_auto_pipeline (aes-intel platform)
 # File: prompt_cnki_web.sh
 # Description: 每天定时弹窗提醒用户执行深度抓取。若用户点击，则调用 cnki_downloader.py
+#
+# 通知中心接入（方案 A，2026-07-31）：
+#   - 保留原生 dialog 作为桌面端提醒 + 执行点击界面（不更换）。
+#   - 启用时：在弹 dialog 前创建一条 action 待办到通知中心留档，用户点击后回填
+#     outcome（executed/cancelled），抓取完成后追加 report 回填 exit 码。
+#   - 开关：USE_NOTIFICATION_HUB=1 开启留档；=0 完全回退为原样（只弹 dialog）。
+#     cnki_downloader.py 爬取本体逻辑不变。
 # =============================================================================
+
+# 通知中心接入开关（1=开启留档，0=回退原样）
+USE_NOTIFICATION_HUB=1
+
+# 通知中心统一写入端（绝对路径；notify_cli.py 纯标准库，用 system python3 即可）
+NOTIFY_CLI="$HOME/coding/notification-hub/notify_cli.py"
+NOTIFY_PY=python3
+
+# 脚本自身绝对路径（作为 action.target，供将来网页看板解释执行）
+SCRIPT_PATH="$HOME/coding/lit_auto_pipeline/prompt_cnki_web.sh"
+
+# 建一个 action 待办（pending）并捕获其 id；失败时不阻断主流程
+ACTION_ID=""
+if [ "$USE_NOTIFICATION_HUB" = "1" ] && [ -f "$NOTIFY_CLI" ]; then
+    ACTION_ID=$("$NOTIFY_PY" "$NOTIFY_CLI" --type action \
+        --source cnki_downloader --level warn --no-banner --print-id \
+        --title "深度抓取开工" \
+        --msg "【知网深度抓取】时间到了，是否立即执行？" \
+        --action-kind cnki_web --action-target "$SCRIPT_PATH" 2>/dev/null | tail -n 1)
+fi
 
 # 使用 AppleScript 弹出持久化系统对话框
 res=$(osascript -e '
@@ -14,6 +41,19 @@ on error number -128
     return "Cancel"
 end try
 ')
+
+# 根据 dialog 结果回填待办结果（仅启用留档且有 id 时）
+if [ -n "$ACTION_ID" ]; then
+    if [ "$res" = "立即执行" ]; then
+        outcome="executed"
+    else
+        outcome="cancelled"
+    fi
+    msg_prompt="用户在 dialog 中选择了「$([ "$outcome" = "executed" ] && echo 立即执行 || echo 暂不/取消)」"
+    "$NOTIFY_PY" "$NOTIFY_CLI" --type action --resolve --ref "$ACTION_ID" \
+        --source cnki_downloader --level info --no-banner \
+        --outcome "$outcome" --title "深度抓取开工" --msg "$msg_prompt" >/dev/null 2>&1
+fi
 
 # 如果用户点击了“立即执行”
 if [ "$res" = "立即执行" ]; then
@@ -52,6 +92,20 @@ if [ "$res" = "立即执行" ]; then
     EXIT_CODE=${PIPESTATUS[0]}
 
     echo "=== [cnki-web] End (exit=$EXIT_CODE): $(date) ===" | tee -a "$LOG_FILE"
+
+    # 抓取完成后追加 report 回填结果（仅启用留档时）
+    if [ "$USE_NOTIFICATION_HUB" = "1" ] && [ -f "$NOTIFY_CLI" ]; then
+        if [ "$EXIT_CODE" = "0" ]; then
+            "$NOTIFY_PY" "$NOTIFY_CLI" --source cnki_downloader --level info --no-banner \
+                --type report --title "深度抓取完成" \
+                --msg "知网深度抓取执行完成" --result "exit=0,成功" >/dev/null 2>&1
+        else
+            "$NOTIFY_PY" "$NOTIFY_CLI" --source cnki_downloader --level error --no-banner \
+                --type report --title "深度抓取失败" \
+                --msg "知网深度抓取异常退出" --result "exit=$EXIT_CODE,失败" >/dev/null 2>&1
+        fi
+    fi
+
     exit "$EXIT_CODE"
 else
     echo "用户取消或选择暂不执行。"
