@@ -1,71 +1,36 @@
-# ==============================================================================
-# 1. 昼夜状态自动切换守护（当天 07:00 进入 MANUAL 保护模式，第二天 01:00 进入 AUTO 自动化模式）
-# ==============================================================================
-0 1 * * * echo "AUTO" > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/.status
-0 7 * * * echo "MANUAL" > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/.status
 
-# ==============================================================================
-# 2. run_all 已废弃（原每 30min CMA 补跑导致白天频繁弹窗；见 2d）
-# ==============================================================================
-# 0,30 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_all.sh
-
-# ==============================================================================
-# 2b. KTN 独立任务（每 30 分钟）
-# ==============================================================================
-5,35 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh ktn
-
-# ==============================================================================
-# 2c. CNKI RSS 静默抓取 — 已暂停 (2026-06-23)
+#     ⚠️ 会弹出 Edge 浏览器前台窗口，并非后台隐形执行（Playwright headless=False）
 #     原因: 全部期刊已改 web 深度爬取，run_rss_mode() 空转不写 XML（见 cnki_downloader.py）。
-#     知网数据由 §3 prompt_cnki_web.sh (10:00/17:00) 负责。
 #     恢复 RSS cron: 取消下行注释 + cnki_downloader.py run_rss_mode() 去掉首行 return。
 #     手动试跑 RSS 仍可用: ./run_task.sh cnki
-# ==============================================================================
+#     知网数据由 §3 prompt_cnki_web.sh (10:00/17:00) 负责。
+# 0,30 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_all.sh
+# 1. 昼夜状态自动切换守护（当天 07:00 进入 MANUAL 保护模式，第二天 01:00 进入 AUTO 自动化模式）
 # 15 8-22/2 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh cnki
-
-# ==============================================================================
+# 2. run_all 已废弃（原每 30min CMA 补跑导致白天频繁弹窗；见 2d）
+# 2b. KTN 独立任务（每 30 分钟）
+# 2c. CNKI RSS 静默抓取 — 已暂停 (2026-06-23)
 # 2d. CMA 深度抓取（工作日 10:30 / 18:30，正刊目录 + 优先出版）
-#     ⚠️ 会弹出 Edge 浏览器前台窗口，并非后台隐形执行（Playwright headless=False）
-# ==============================================================================
-30 10,18 * * 1-5 /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh cma
-
-# ==============================================================================
 # 2e. 管线巡查哨兵（:10/:40 观察各源日志与 KTN 新鲜度，写入 patrol_diary）
-# ==============================================================================
-10,40 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_patrol.sh
-
-# ==============================================================================
 # 3. 知网深度抓取 (带持久弹窗的人工介入确认)
-# ==============================================================================
-0 10,17 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/prompt_cnki_web.sh
-
-# ==============================================================================
 # 4. LWW 独立任务
-# ==============================================================================
-# 错峰执行：延后10分钟，避开整点锁冲突
-10 8,12,16,20 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh lww
-
-# ===================================================
 # 5. crontab 自动备份到项目目录（含 git push）
-# ===================================================
-# 先用 diff 判断是否有变更，有变更才 commit + push，避免每天产生空commit
-5 3 * * * cd /Users/meiyiwangluokeji/coding/lit_auto_pipeline && crontab -l > crontab.backup.new && if ! diff crontab.backup crontab.backup.new >/dev/null 2>&1; then mv crontab.backup.new crontab.backup && git add crontab.backup && git commit -m "chore: auto-sync crontab backup [$(date +\%F)]" && git push; else rm -f crontab.backup.new; fi
-
-# ===================================================
-# ===================================================
-
 # ================ EOF ================
-
+# ===================================================
 # ==============================================================================
-# IMA 知识库自动增量同步（每2小时，防风控 delay 15-30s）
-# ==============================================================================
-# ==============================================================================
-# IMA 知识库自动增量同步（每天 12:00 / 18:00，针对管理员集中上传习惯）
-# ==============================================================================
-# ==============================================================================
-# IMA 知识库自动增量同步（每天 11-18点每2小时，10个/轮，延迟15-30s）
-# ==============================================================================
-# IMA 知识库扫描通知（每天 11/13/15/17 点）
-
 # AES Filter — 医美筛选+打标（每 15 分钟）
+# IMA 知识库扫描通知（每天 11/13/15/17 点）
+# IMA 知识库自动增量同步（每2小时，防风控 delay 15-30s）
+# IMA 知识库自动增量同步（每天 11-18点每2小时，10个/轮，延迟15-30s）
+# IMA 知识库自动增量同步（每天 12:00 / 18:00，针对管理员集中上传习惯）
+# 先用 diff 判断是否有变更，有变更才 commit + push，避免每天产生空commit
+# 错峰执行：延后10分钟，避开整点锁冲突
 */15 * * * * /Users/meiyiwangluokeji/coding/aes-workbench/.venv/bin/python3 /Users/meiyiwangluokeji/coding/aes-workbench/rss_aggregator.py >> /Users/meiyiwangluokeji/coding/aes-workbench/data/rss_aggregator.log 2>&1
+0 1 * * * echo "AUTO" > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/.status
+0 10,17 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/prompt_cnki_web.sh
+0 7 * * * echo "MANUAL" > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/.status
+10 8,12,16,20 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh lww
+10,40 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_patrol.sh
+30 10,18 * * 1-5 /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh cma
+5 3 * * * cd /Users/meiyiwangluokeji/coding/lit_auto_pipeline && crontab -l > crontab.backup.new && if ! diff crontab.backup crontab.backup.new >/dev/null 2>&1; then mv crontab.backup.new crontab.backup && git add crontab.backup && git commit -m "chore: auto-sync crontab backup [$(date +\%F)]" && git push; else rm -f crontab.backup.new; fi
+5,35 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh ktn
