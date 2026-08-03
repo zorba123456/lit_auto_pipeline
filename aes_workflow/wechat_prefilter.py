@@ -217,6 +217,33 @@ def ocr_image_url(img_url: str) -> list[str]:
     return []
 
 
+# 微信正文 DOI 后常紧跟杂质（无空格分隔，因 OCR/正文清洗删了空白）：
+#   "10.1007/x.epub ahead of print.pmid:123" → 去空格后 "10.1007/x.epubaheadofprint.pmid:123"
+# 这些语义词/锚点必须把 DOI 后缀截断，否则会造出垃圾 DOI 对象（§13.6 对象化暴露此 bug）。
+# 只保留高信号锚点词——不能加 of/print/read 等泛词，会误命中 DOI 内部字母（如 asjof/ojag）。
+# firstpublished 必须整体优先于 published，避免把 "10.1111/jocd.71063firstpublished" 截到 ...63first。
+_DOI_IMPURITY = re.compile(
+    r"(?i)(firstpublished|e?pub|published|pmid|pmcid|medline|doi:)",  # epub 在最前可截断 e.pubaheadofprint
+)
+
+
+def _truncate_doi(raw: str) -> str | None:
+    """截断微信正文抽取的原始 DOI 串，去掉 epub/pmid/pmcid 等杂质，返回干净 DOI。"""
+    if not raw:
+        return None
+    m = _DOI_IMPURITY.search(raw)
+    if m:
+        raw = raw[: m.start()].rstrip(".")
+    norm: str | None = normalize_doi(raw)
+    if not norm:
+        return None
+    # 二次防御：仍含明显杂质词则弃
+    if re.search(r"(?i)epub|pmid|pmcid|published|medline", norm):
+        return None
+    return norm
+
+
+
 def extract_identifiers_from_text(text: str) -> list[dict]:
     """从纯文本中扫描 DOI/PMID。先清洗 OCR 产生的空格。"""
     if not text:
@@ -227,7 +254,7 @@ def extract_identifiers_from_text(text: str) -> list[dict]:
     result = []
     dois = set(DOI_PATTERN.findall(clean) + URL_DOI_PATTERN.findall(clean))
     for doi in dois:
-        norm = normalize_doi(doi)
+        norm = _truncate_doi(doi)
         if norm and norm not in seen:
             seen.add(norm)
             result.append({"type": "doi", "value": norm})
@@ -239,6 +266,126 @@ def extract_identifiers_from_text(text: str) -> list[dict]:
     return result
 
 
+def _ensure_objects_layer(conn: sqlite3.Connection) -> None:
+    """确保 objects / object_sources / entry_object_links 表存在（幂等）。
+
+    微信正文扫描链路此前不接触对象层；此处按《测试阶段行动框架》§13.6 对象化补缺，
+    把微信条目扫出的 DOI 升级为文献对象前，先保证三表就位（对齐 schema_stage0 增量迁移）。
+    """
+    for name in ("objects", "object_sources", "entry_object_links"):
+        r = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        if r:
+            continue
+        if name == "objects":
+            conn.execute(
+                """CREATE TABLE objects (
+                    object_id TEXT PRIMARY KEY,
+                    id_type TEXT NOT NULL
+                            CHECK (id_type IN ('doi','pmid','cmaid','cnki','title_hash')),
+                    stage TEXT NOT NULL DEFAULT 'discovered'
+                            CHECK (stage IN ('discovered','screened','fulltext','summarized','detailed')),
+                    is_final_version TEXT NOT NULL DEFAULT 'unknown'
+                            CHECK (is_final_version IN ('0','1','unknown')),
+                    has_video        TEXT NOT NULL DEFAULT 'unknown'
+                            CHECK (has_video IN ('0','1','unknown')),
+                    video_available  TEXT NOT NULL DEFAULT 'unknown'
+                            CHECK (video_available IN ('0','1','unknown')),
+                    human_finalized  INTEGER NOT NULL DEFAULT 0 CHECK (human_finalized IN (0,1)),
+                    normalize_status TEXT,
+                    screen_status    TEXT,
+                    tag_status       TEXT,
+                    created_at     TEXT NOT NULL,
+                    updated_at     TEXT NOT NULL
+                )"""
+            )
+        elif name == "object_sources":
+            conn.execute(
+                """CREATE TABLE object_sources (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    object_id TEXT NOT NULL REFERENCES objects(object_id) ON DELETE CASCADE,
+                    channel TEXT NOT NULL CHECK (channel IN ('rss','wechat','ima','manual')),
+                    source_detail TEXT,
+                    link TEXT,
+                    first_seen_at TEXT NOT NULL,
+                    UNIQUE (object_id, channel, source_detail)
+                )"""
+            )
+        else:
+            conn.execute(
+                """CREATE TABLE entry_object_links (
+                    object_id    TEXT NOT NULL REFERENCES objects(object_id) ON DELETE CASCADE,
+                    article_key  TEXT NOT NULL REFERENCES entries(article_key) ON DELETE CASCADE,
+                    link_status  TEXT NOT NULL DEFAULT 'linked'
+                                 CHECK (link_status IN ('linked','candidate','broken')),
+                    PRIMARY KEY (object_id, article_key)
+                )"""
+            )
+
+
+def _upgrade_to_object(
+    conn: sqlite3.Connection,
+    article_key: str,
+    doi: str,
+    source_url: str,
+    feed_name: str,
+) -> str:
+    """§13.6 对象化补缺：把微信扫出的真实 DOI 建为文献对象并挂条目。
+
+    - 建/复用 real DOI 对象（跨渠道归并：同 DOI 多渠道 → 挂同一对象）
+    - entry_object_links 关联条目
+    - object_sources 记 wechat 渠道（公众号/群名可回溯）
+    - entries.object_id 改写为 DOI
+
+    返回 action: create_doi | reuse_existing。
+    """
+    now = utc_now()
+    doi = doi.lower()
+
+    obj_row = conn.execute(
+        "SELECT object_id FROM objects WHERE object_id=? AND id_type='doi'", (doi,)
+    ).fetchone()
+    if obj_row:
+        target_obj = obj_row["object_id"]
+        action = "reuse_existing"
+    else:
+        target_obj = doi
+        conn.execute(
+            """INSERT OR IGNORE INTO objects
+               (object_id, id_type, stage, is_final_version, has_video, video_available,
+                normalize_status, screen_status, tag_status, created_at, updated_at)
+               VALUES (?, 'doi', 'discovered', 'unknown', 'unknown', 'unknown',
+                       'done', 'pending', NULL, ?, ?)""",
+            (doi, now, now),
+        )
+        action = "create_doi"
+
+    conn.execute(
+        """INSERT OR IGNORE INTO entry_object_links (object_id, article_key, link_status)
+           VALUES (?, ?, 'linked')""",
+        (target_obj, article_key),
+    )
+    # 来源记录：微信渠道并入该对象（object_sources UNIQUE(object_id,channel,source_detail)）
+    conn.execute(
+        """INSERT OR IGNORE INTO object_sources (object_id, channel, source_detail, link, first_seen_at)
+           SELECT ?, 'wechat', ?, ?, ?
+           WHERE NOT EXISTS (SELECT 1 FROM object_sources WHERE object_id=? AND channel='wechat' AND source_detail=?)""",
+        (target_obj, feed_name or "未知", source_url, now, target_obj, feed_name or "未知"),
+    )
+    # 条目改挂真实 DOI 对象（微信条目此前无 title_hash 占位，若无占位则跳过 superseded）
+    conn.execute(
+        "UPDATE entries SET object_id=?, updated_at=? WHERE article_key=?",
+        (target_obj, now, article_key),
+    )
+    conn.execute(
+        """UPDATE objects SET normalize_status='superseded', updated_at=?
+           WHERE object_id=? AND id_type='title_hash'""",
+        (now, article_key),
+    )
+    return action
+
+
 def update_entry_with_identifiers(
     conn: sqlite3.Connection,
     article_key: str,
@@ -246,7 +393,11 @@ def update_entry_with_identifiers(
     wechat_url: str,
     feed_name: str,
 ) -> None:
-    """将提取到的标识符更新到 entries 表和 entry_identifiers。"""
+    """将提取到的标识符更新到 entries 表和 entry_identifiers。
+
+    §13.6 对象化补缺：扫出 DOI 后将微信条目升级为文献对象
+    （建/复用 real DOI 对象 + 挂 entry_object_links + 记 wechat 来源）。
+    """
     now = utc_now()
 
     # 收集标识符写入主表
@@ -263,6 +414,11 @@ def update_entry_with_identifiers(
             "UPDATE entries SET doi = ?, discovery_type = 'wechat_discovery', "
             "meta_status = 'meta_partial', updated_at = ? WHERE article_key = ?",
             (updates["doi"], now, article_key),
+        )
+        # 对象化补缺：把真实 DOI 升级为文献对象
+        _ensure_objects_layer(conn)
+        _upgrade_to_object(
+            conn, article_key, updates["doi"], wechat_url, feed_name
         )
     elif updates.get("pmid"):
         conn.execute(
