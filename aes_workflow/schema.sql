@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS entries (
   publisher_url TEXT,
   issue TEXT,
   pages TEXT,
-  pub_date TEXT,
+  feed_date TEXT,       -- 条目被 RSS/XML 收录日期（非学术出版日期）
+  pub_date TEXT,        -- 学术出版日期（归一/CrossRef 回填）
+  object_id TEXT,       -- 唯一标识对象占位/归属（阶段0；阶段2重导实质回填）
   meta_status TEXT DEFAULT 'meta_pending',
   meta_tier TEXT,
   fulltext_status TEXT DEFAULT 'PDF_NONE',
