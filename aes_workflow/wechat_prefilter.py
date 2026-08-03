@@ -480,9 +480,15 @@ def scan_one(
     }
 
 
-def scan_batch(*, use_ocr: bool = False) -> dict:
-    """扫描一批 discovery_type=wechat_news 的条目（限 DOI 扫描白名单）。"""
-    stats = {"scanned": 0, "found": 0, "no_id": 0, "fetch_failed": 0, "ocr_used": 0}
+def scan_batch(*, use_ocr: bool = False, cursor: tuple | None = None) -> dict:
+    """扫描一批 discovery_type=wechat_news 的条目（限 DOI 扫描白名单）。
+
+    keyset 游标（cursor = 上一批最后一条的 (ingest_at, article_key)）实现翻页：
+    每次取「队列中比游标更旧」的 BATCH_SIZE 条，扫过即跳前，不回扫已处理的，
+    从而覆盖全部白名单条目。缺省 cursor=None 从最新开始。返回 stats 含
+    next_cursor（本批末条的元组，供下一批推进）。
+    """
+    stats: dict = {"scanned": 0, "found": 0, "no_id": 0, "fetch_failed": 0, "ocr_used": 0}
 
     from aes_workflow.doi_scan_config import get_doi_scan_accounts
     doi_accounts = get_doi_scan_accounts()
@@ -490,18 +496,26 @@ def scan_batch(*, use_ocr: bool = False) -> dict:
         print("[prefilter] ⚠️ DOI 扫描白名单为空（config.json 中未配置 doi_scan_accounts）")
         return stats
 
-    placeholders = ",".join("?" for _ in doi_accounts)
+    placeholders = ", ".join("?" for _ in doi_accounts)
+    cursor_sql = ""
+    cursor_params: list = []
+    if cursor:
+        cursor_sql = "AND (ingest_at, article_key) < (?, ?)"
+        cursor_params = [cursor[0], cursor[1]]
+
     with db_session() as conn:
         rows = conn.execute(
-            f"""SELECT article_key, source_url, journal AS feed_name
+            f"""SELECT article_key, source_url, journal AS feed_name, ingest_at
                FROM entries
                WHERE discovery_type = 'wechat_news'
                  AND source_url LIKE '%mp.weixin.qq.com%'
                  AND journal IN ({placeholders})
                  AND (doi IS NULL OR doi = '')
                  AND (pmid IS NULL OR pmid = '')
+                 {cursor_sql}
+               ORDER BY ingest_at DESC, article_key DESC
                LIMIT ?""",
-            (*doi_accounts, BATCH_SIZE),
+            (*doi_accounts, *cursor_params, BATCH_SIZE),
         ).fetchall()
 
         if not rows:
@@ -531,7 +545,12 @@ def scan_batch(*, use_ocr: bool = False) -> dict:
                 stats["fetch_failed"] += 1
             time.sleep(FETCH_DELAY)
 
+        # 游标推进：记录本批最后一条（队列位置，与 fetch 成败无关）
+        last = rows[-1]
+        stats["next_cursor"] = (last["ingest_at"], last["article_key"])
+
     return stats
+
 
 
 def main():
@@ -540,6 +559,8 @@ def main():
     parser.add_argument("--limit", type=int, default=BATCH_SIZE, help="扫描条数")
     parser.add_argument("--article-key", type=str, help="单条 article_key")
     parser.add_argument("--url", type=str, help="指定 URL 测试")
+    parser.add_argument("--scan-all", action="store_true",
+                        help="翻页扫描全部白名单微信条目（默认只扫最新一批 BATCH_SIZE 条）")
     args = parser.parse_args()
 
     init_cache_db()
@@ -577,8 +598,24 @@ def main():
 
     else:
         print(f"[prefilter] 开始扫描（OCR={'开' if args.ocr else '关'}）")
-        stats = scan_batch(use_ocr=args.ocr)
-        print(f"[prefilter] {stats}")
+        if args.scan_all:
+            cursor = None
+            grand = {"scanned": 0, "found": 0, "no_id": 0, "fetch_failed": 0, "ocr_used": 0}
+            n = 0
+            while True:
+                stats = scan_batch(use_ocr=args.ocr, cursor=cursor)
+                for k in grand:
+                    kk = k
+                    grand[kk] += int(stats.get(kk, 0))
+                print(f"  [batch {n+1}] { {k: stats.get(k) for k in ('scanned','found','no_id','fetch_failed')} }", flush=True)
+                n += 1
+                if not stats.get("next_cursor") or stats.get("scanned", 0) == 0:
+                    break
+                cursor = stats["next_cursor"]
+            print(f"[prefilter] 全量扫描完成（{n} 批）: {grand}")
+        else:
+            stats = scan_batch(use_ocr=args.ocr)
+            print(f"[prefilter] {stats}")
 
 
 if __name__ == "__main__":
