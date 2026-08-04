@@ -354,10 +354,14 @@ def _upgrade_to_object(
         conn.execute(
             """INSERT OR IGNORE INTO objects
                (object_id, id_type, stage, is_final_version, has_video, video_available,
-                normalize_status, screen_status, tag_status, created_at, updated_at)
+                normalize_status, screen_status, tag_status,
+                source_group, origin_channel, origin_detail, origin_url,
+                created_at, updated_at)
                VALUES (?, 'doi', 'discovered', 'unknown', 'unknown', 'unknown',
-                       'done', 'pending', NULL, ?, ?)""",
-            (doi, now, now),
+                       'done', 'pending', NULL,
+                       'wechat_scan', 'wechat', ?, ?,
+                       ?, ?)""",
+            (doi, feed_name or "未知", source_url, now, now),
         )
         action = "create_doi"
 
