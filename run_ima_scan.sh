@@ -2,9 +2,9 @@
 # IMA 巡查更新（scan-only，不下载、不归并，仅供人眼）→ 导入工作台 ima_update
 # 用法: ./run_ima_scan.sh
 #   1) ima_patrol.py --scan-only : 启动模拟器→扫清单→导 _scan_*.json→关模拟器(不下载)
-#   2) ima_ingest.py             : 读最新清单→去重入库(discovery_type=ima_update)
-# 触发: crontab 每天 11:00 / 18:00（与微信错峰,IMA独立模拟器）
-# 说明: 仅爬取更新文件名,不做 ---normalize 标题反查归一（用户定策,仅供人眼筛查）.
+#   2) ima_ingest.py             : 读最新清单→【不查重直接追加导入】(discovery_type=ima_update)
+# 触发: crontab 每天 11:05 / 18:05（IMA 独立模拟器）
+# 说明: 仅爬取更新文件名,不做 --normalize 标题反查归一,不查重(用户定策,仅供人眼筛查).
 LOG_DIR="/Users/meiyiwangluokeji/coding/lit_auto_pipeline/logs"
 mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/ima_scan.log"
