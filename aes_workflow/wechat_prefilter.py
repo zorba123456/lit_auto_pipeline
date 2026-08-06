@@ -484,28 +484,50 @@ def scan_one(
     }
 
 
-def scan_batch(*, use_ocr: bool = False, cursor: tuple | None = None) -> dict:
-    """扫描一批 discovery_type=wechat_news 的条目（限 DOI 扫描白名单）。
+def scan_batch(*, use_ocr: bool = False, cursor: tuple | None = None, full: bool = False,
+               min_ingest_at: str | None = None) -> dict:
+    """扫描一批 discovery_type=wechat_news 的条目。
 
     keyset 游标（cursor = 上一批最后一条的 (ingest_at, article_key)）实现翻页：
     每次取「队列中比游标更旧」的 BATCH_SIZE 条，扫过即跳前，不回扫已处理的，
     从而覆盖全部白名单条目。缺省 cursor=None 从最新开始。返回 stats 含
     next_cursor（本批末条的元组，供下一批推进）。
+
+    full=True（每周全量）：不限 journal 白名单，扫全部 wechat_news（DOI 为空）——
+    这样 36 号之外的新号也能被扫到，命中 DOI 后由 cron 层增补进命中池（§10.2b）。
+    full=False（默认/每日增量）：限定 doi_scan_accounts 命中池期刊，省抓取。
+
+    min_ingest_at（每日增量水位）：只扫 ingest_at > 该值 的新入库条目（增量位点由
+    cron 层存状态文件推进），不重扫历史已处理条目。
     """
     stats: dict = {"scanned": 0, "found": 0, "no_id": 0, "fetch_failed": 0, "ocr_used": 0}
 
     from aes_workflow.doi_scan_config import get_doi_scan_accounts
     doi_accounts = get_doi_scan_accounts()
-    if not doi_accounts:
+    if not full and not doi_accounts:
         print("[prefilter] ⚠️ DOI 扫描白名单为空（config.json 中未配置 doi_scan_accounts）")
         return stats
 
-    placeholders = ", ".join("?" for _ in doi_accounts)
     cursor_sql = ""
     cursor_params: list = []
     if cursor:
         cursor_sql = "AND (ingest_at, article_key) < (?, ?)"
         cursor_params = [cursor[0], cursor[1]]
+
+    # 白名单期刊条件（仅增量模式套用；全量模式不限 journal）
+    journal_sql = ""
+    journal_params: list = []
+    if not full:
+        placeholders = ", ".join("?" for _ in doi_accounts)
+        journal_sql = f"AND journal IN ({placeholders})"
+        journal_params = doi_accounts
+
+    # 增量水位条件：只扫最近一次扫描之后新入库的条目
+    water_sql = ""
+    water_params: list = []
+    if min_ingest_at:
+        water_sql = "AND ingest_at > ?"
+        water_params = [min_ingest_at]
 
     with db_session() as conn:
         rows = conn.execute(
@@ -513,13 +535,14 @@ def scan_batch(*, use_ocr: bool = False, cursor: tuple | None = None) -> dict:
                FROM entries
                WHERE discovery_type = 'wechat_news'
                  AND source_url LIKE '%mp.weixin.qq.com%'
-                 AND journal IN ({placeholders})
+                 {journal_sql}
+                 {water_sql}
                  AND (doi IS NULL OR doi = '')
                  AND (pmid IS NULL OR pmid = '')
                  {cursor_sql}
                ORDER BY ingest_at DESC, article_key DESC
                LIMIT ?""",
-            (*doi_accounts, *cursor_params, BATCH_SIZE),
+            (*journal_params, *water_params, *cursor_params, BATCH_SIZE),
         ).fetchall()
 
         if not rows:
@@ -565,6 +588,8 @@ def main():
     parser.add_argument("--url", type=str, help="指定 URL 测试")
     parser.add_argument("--scan-all", action="store_true",
                         help="翻页扫描全部白名单微信条目（默认只扫最新一批 BATCH_SIZE 条）")
+    parser.add_argument("--full", action="store_true",
+                        help="全量扫描：不限 journal 白名单，扫全部 wechat_news（每周全量用，配合 --scan-all 增补命中池）")
     args = parser.parse_args()
 
     init_cache_db()
@@ -607,7 +632,7 @@ def main():
             grand = {"scanned": 0, "found": 0, "no_id": 0, "fetch_failed": 0, "ocr_used": 0}
             n = 0
             while True:
-                stats = scan_batch(use_ocr=args.ocr, cursor=cursor)
+                stats = scan_batch(use_ocr=args.ocr, cursor=cursor, full=args.full)
                 for k in grand:
                     kk = k
                     grand[kk] += int(stats.get(kk, 0))
