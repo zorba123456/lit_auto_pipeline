@@ -34,3 +34,11 @@
 30 10,18 * * 1-5 /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh cma
 5 3 * * * cd /Users/meiyiwangluokeji/coding/lit_auto_pipeline && crontab -l > crontab.backup.new && if ! diff crontab.backup crontab.backup.new >/dev/null 2>&1; then mv crontab.backup.new crontab.backup && git add crontab.backup && git commit -m "chore: auto-sync crontab backup [$(date +\%F)]" && git push; else rm -f crontab.backup.new; fi
 5,35 * * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_task.sh ktn
+
+# 微信DOI 扫描已改为「随导入扫描」：rss_aggregator 每15min入库 find 微信条目时就地扫 DOI+归并（D50 v2）。
+# 无需每日/每周定时；原 incremental/full cron 已移除（2026-08-06）。
+
+# ============ IMA 巡查更新（scan-only 不下载/不归一，仅供人眼） ============
+# 每天 11:05 / 18:05: ima_patrol --scan-only(拉清单) → ima_ingest(入库 ima_update)；错峰避开整点
+5 11 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
+5 18 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
