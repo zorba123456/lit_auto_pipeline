@@ -34,7 +34,9 @@ FETCH_DELAY = 0.3  # 微信拉取间隔，礼貌减速
 
 # ── 正则 ──────────────────────────────────────────────
 # DOI 合法字符集：字母数字 + -._;()/:，不包含中文
-DOI_PATTERN = re.compile(r'\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)', re.IGNORECASE)
+# v2.11.7(bug 修复)：开头不用 \b —— CJK 在 Python \w 里算词字符，\b 在「汉字+10.」间失效，
+#   导致紧贴中文的 DOI(无空格)漏抓。改 "前一位不是 ASCII 字母/数字" 的右边界判断，兼容 CJK 邻接。
+DOI_PATTERN = re.compile(r'(?<![0-9A-Za-z])(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)', re.IGNORECASE)
 PMID_PATTERN = re.compile(r'\bPMID\s*[:-]?\s*(\d{7,8})\b', re.IGNORECASE)
 URL_DOI_PATTERN = re.compile(
     r'(?:https?://)?(?:dx\.)?doi\.org/(10\.\d{4,9}/[-._;()/:A-Z0-9a-z]+)',
@@ -225,34 +227,52 @@ def ocr_image_url(img_url: str) -> list[str]:
 _DOI_IMPURITY = re.compile(
     r"(?i)(firstpublished|e?pub|published|pmid|pmcid|medline|doi:)",  # epub 在最前可截断 e.pubaheadofprint
 )
+# v2.11.7(bug): 正文里 DOI 与它自己的 https://doi.org/<doi> URL 常粘连(去空格后成一个串,
+#   如 "10.1002/jum.70306https://doi.org/10.1002/jum.70306")。DOI 合法字符集含 / : .，
+#   整串被贪心吞成一个"DOI"。真实 DOI 不含 :// 也不含 http，故在 URL 边界截断掉后半 URL。
+_URL_BOUNDARY = re.compile(r"(?i)(https?://|ftp://|www\.)")
 
 
 def _truncate_doi(raw: str) -> str | None:
-    """截断微信正文抽取的原始 DOI 串，去掉 epub/pmid/pmcid 等杂质，返回干净 DOI。"""
+    """截断微信正文抽取的原始 DOI 串，去掉 epub/pmid/pmcid 及粘连 URL 等杂质，返回干净 DOI。"""
     if not raw:
         return None
+    # 1) 语义词杂质(epub/pmid/...)截断
     m = _DOI_IMPURITY.search(raw)
     if m:
         raw = raw[: m.start()].rstrip(".")
+    # 2) 粘连 URL 截断：把 "10.../jum.70306https://doi.org/10.../jum.70306" 只留前一个干净 DOI
+    u = _URL_BOUNDARY.search(raw)
+    if u:
+        raw = raw[: u.start()].rstrip(".")
+    # 3) 真空格后多个裸 DOI 粘连(如 "10.1002/jum.7030610.1002/jum.70306")：只留第一个。
+    #    真实 DOI 内不会紧接一个 "10.xxxxx/" 新前缀(4-9位数字)，故据此切成第一段。
+    frags = list(re.finditer(r"10\.\d{4,9}/", raw))
+    if len(frags) > 1 and frags[0].start() == 0:
+        raw = raw[: frags[1].start()].rstrip(".")
     norm: str | None = normalize_doi(raw)
     if not norm:
         return None
     # 二次防御：仍含明显杂质词则弃
-    if re.search(r"(?i)epub|pmid|pmcid|published|medline", norm):
+    if re.search(r"(?i)epub|pmid|pmcid|published|medline|https?://", norm):
         return None
     return norm
 
 
 
 def extract_identifiers_from_text(text: str) -> list[dict]:
-    """从纯文本中扫描 DOI/PMID。先清洗 OCR 产生的空格。"""
+    """从纯文本中扫描 DOI/PMID。"""
     if not text:
         return []
-    # OCR 可能在小字间插入空格，先压缩
-    clean = re.sub(r'\s+', '', text)
+    # v2.11.7(bug 修复)：不再对全文做 \s+ 去空白——那会把 DOI 与相邻词/URL 粘成串
+    # (如 "10.1002/jum.70306https://doi.org/...") 且破坏 \b 边界(吞相邻 CJK/标签字母)。
+    # 微信正文为 HTML 富文本提取(带真实空白/换行)，直接在原文上按边界匹配即可。
+    # OCR 空格变形由独立 OCR 路径(use_ocr)处理，不走此处；_truncate_doi 仍做防御性截断。
     seen = set()
     result = []
-    dois = set(DOI_PATTERN.findall(clean) + URL_DOI_PATTERN.findall(clean))
+    dois = set()
+    dois |= set(DOI_PATTERN.findall(text))
+    dois |= set(URL_DOI_PATTERN.findall(text))
     for doi in dois:
         norm = _truncate_doi(doi)
         if norm and norm not in seen:
