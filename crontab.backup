@@ -28,7 +28,7 @@
 # ---- AES 拆分规划(§D58/八,常规RSS阅读器策略): 微信/群与期刊源分开独立 cron ----
 # 微信/群源: 本地读XML,秒级,每15min全量; 期刊等网络源: 各自interval到期,每30min
 */15 * * * * /Users/meiyiwangluokeji/coding/aes-workbench/.venv/bin/python3 /Users/meiyiwangluokeji/coding/aes-workbench/rss_aggregator.py --mode wechat >> /Users/meiyiwangluokeji/coding/aes-workbench/data/rss_aggregator.log 2>&1
-0,30 * * * * /Users/meiyiwangluokeji/coding/aes-workbench/.venv/bin/python3 /Users/meiyiwangluokeji/coding/aes-workbench/rss_aggregator.py --mode journal >> /Users/meiyiwangluokeji/coding/aes-workbench/data/rss_aggregator.log 2>&1
+* * * * * /Users/meiyiwangluokeji/coding/aes-workbench/.venv/bin/python3 /Users/meiyiwangluokeji/coding/aes-workbench/rss_aggregator.py --mode journal >> /Users/meiyiwangluokeji/coding/aes-workbench/data/rss_aggregator.log 2>&1
 
 # [自动续补] 占位反查+重试队列：每25分 merge_normalize 续补(升级占位→权威DOI,幂等不删)
 25 * * * * cd /Users/meiyiwangluokeji/coding/aes-workbench && .venv/bin/python3 merge_normalize.py --resolve-pool --retry-queue --exec >> /Users/meiyiwangluokeji/coding/aes-workbench/data/merge_normalize.log 2>&1
