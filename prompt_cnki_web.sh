@@ -74,11 +74,46 @@ if [ "$res" = "立即执行" ]; then
     echo "=== [cnki-web] Start: $(date) ===" | tee -a "$LOG_FILE"
     echo "用户已确认，开始执行 Web 模式深度抓取..." | tee -a "$LOG_FILE"
 
-    # 获取任务排他锁 (如果刚好整点后台有任务在跑，则等待其完成)
+    # ==========================================================================
+    # 获取任务排他锁（PID 存活检测 + 年龄兜底，防僵尸锁卡死）
+    #   - 锁目录内写 lock.pid(持有者 PID)，用于判断锁是否还由活进程持有
+    #   - 若 PID 已死(进程消失) → 判定僵尸锁，删除后重新尝试
+    #   - 若锁目录无 PID 文件(历史遗留)且年龄超过 5 分钟 → 判定僵尸锁，删除重试
+    #   - 正常执行中 PID 文件必有且持有者存活(见下方 PID 写入行)，不会被误删
+    #   - 滑块验证码最长等 10 分钟，期间持有者进程仍存活，受 PID 检测保护，安全
+    # ==========================================================================
     while ! mkdir "$DIR/pipeline.lock" 2>/dev/null; do
-        echo "等待 pipeline.lock 释放..." | tee -a "$LOG_FILE"
+        ZOMBIE=0
+        if [ -f "$DIR/pipeline.lock/lock.pid" ]; then
+            # 有 PID 文件：若进程已不存活，即僵尸
+            LOCK_PID=$(cat "$DIR/pipeline.lock/lock.pid" 2>/dev/null | tr -d '[:space:]')
+            if ! kill -0 "$LOCK_PID" 2>/dev/null; then
+                ZOMBIE=1
+            fi
+        else
+            # 无 PID 文件(历史僵尸遗留)：用年龄兜底，超过 5 分钟判定僵尸
+            if [ -x /usr/bin/stat ]; then
+                LOCK_AGE=$(($(date +%s) - $(stat -f %m "$DIR/pipeline.lock" 2>/dev/null)))
+            else
+                LOCK_AGE=9999
+            fi
+            if [ "${LOCK_AGE:-0}" -gt 300 ]; then
+                ZOMBIE=1
+            fi
+        fi
+
+        if [ "$ZOMBIE" = "1" ]; then
+            echo "检测到僵尸锁 pipeline.lock，自动清除后重试..." | tee -a "$LOG_FILE"
+            rm -rf "$DIR/pipeline.lock"
+            continue
+        fi
+
+        echo "等待 pipeline.lock 释放(存在有效持有者)..." | tee -a "$LOG_FILE"
         sleep 2
     done
+
+    # 写入持有者 PID，供后续进程检测锁是否存活
+    echo "$$" > "$DIR/pipeline.lock/lock.pid"
 
     # 🛑 开启物理红灯 (通知 SwiftBar 状态为繁忙)
     touch "$DIR/run"
