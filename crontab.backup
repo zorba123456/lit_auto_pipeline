@@ -31,7 +31,6 @@
 * * * * * /Users/meiyiwangluokeji/coding/aes-workbench/.venv/bin/python3 /Users/meiyiwangluokeji/coding/aes-workbench/rss_aggregator.py --mode journal >> /Users/meiyiwangluokeji/coding/aes-workbench/data/rss_aggregator.log 2>&1
 
 # [自动续补] 占位反查+重试队列：每25分 merge_normalize 续补(升级占位→权威DOI,幂等不删)
-25 * * * * cd /Users/meiyiwangluokeji/coding/aes-workbench && .venv/bin/python3 merge_normalize.py --resolve-pool --retry-queue --exec >> /Users/meiyiwangluokeji/coding/aes-workbench/data/merge_normalize.log 2>&1
 0 1 * * * echo "AUTO" > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/.status
 0 10,17 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/prompt_cnki_web.sh
 0 7 * * * echo "MANUAL" > /Users/meiyiwangluokeji/coding/lit_auto_pipeline/.status
