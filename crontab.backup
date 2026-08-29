@@ -47,3 +47,4 @@
 # 每天 11:05 / 18:05: ima_patrol --scan-only(拉清单) → ima_ingest(入库 ima_update)；错峰避开整点
 5 11 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
 5 18 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
+*/10 * * * * cd /Users/meiyiwangluokeji/coding/aes-workbench && /usr/bin/python3 pipeline/p_ingest.py >> data/p_ingest_cron.log 2>&1
