@@ -508,6 +508,12 @@ def update_entry_with_identifiers(
         _upgrade_to_object(
             conn, article_key, updates["doi"], wechat_url, feed_name
         )
+        # v2.39 微信 DOI 汇总列表：每个 DOI 一条独立条目（discovery_type='wx_doi_entry'），
+        # 供 C 模块侧栏「微信 DOI」类目展示。首命中建条，再命中加注提及+前置入库时间。
+        try:
+            _upsert_wx_doi_entry(conn, article_key, updates["doi"], wechat_url, feed_name, now)
+        except Exception as e:
+            print(f"[wx-doi-entry] ⚠️ 汇总条目写入失败(不阻塞主流程): {e}", flush=True)
     elif updates.get("pmid"):
         conn.execute(
             "UPDATE entries SET pmid = ?, discovery_type = 'wechat_discovery', "
@@ -518,6 +524,100 @@ def update_entry_with_identifiers(
         return  # 没有有效标识符，不升级
 
     # v2.22 后 entry_identifiers 表已随旧对象层清除，标识符只存 entries 主表列
+
+
+def _norm_wechat_url(url: str) -> str:
+    """微信文章 URL 归一化：截断 tempkey（会话级参数，同文不同值）及其后所有 query。
+    chksm 同值即同文——保留 __biz/mid/idx/sn 即可稳定判同。"""
+    if not url:
+        return ""
+    i = url.find("tempkey=")
+    return url[:i] if i != -1 else url
+
+
+def _upsert_wx_doi_entry(
+    conn: sqlite3.Connection,
+    src_article_key: str,
+    doi: str,
+    wechat_url: str,
+    feed_name: str,
+    now: str,
+) -> str:
+    """v2.39 微信 DOI 汇总条目（C 模块侧栏「微信 DOI」类目）。
+
+    每个 DOI 恒一条独立条目：
+      - article_key = sha256('wx_doi|'+doi.lower())，与源条目键空间隔离
+      - discovery_type = 'wx_doi_entry'，不参与期刊/微信源常规视图
+      - 标题取源文章标题（本条 DOI 最初被扫出的那篇）；feed_id 记 'wx_doi'
+      - 摘要 = wx_doi_mentions JSON：每次命中的源文章（标题/链接/公号/该篇发布时间/该篇入库时间）
+      - 再次命中：mentions 追加（按源 URL 去重）+ ingest_at 更新为最新命中时间（列表前置）
+    幂等：同源文章重复扫描按 URL 去重不膨胀。返回 create|update|noop。
+    """
+    import hashlib
+    import json as _json
+
+    doi = (doi or "").strip().lower()
+    if not doi:
+        return "noop"
+
+    src = conn.execute(
+        "SELECT title, pub_date, ingest_at, journal FROM entries WHERE article_key=?",
+        (src_article_key,),
+    ).fetchone()
+    if not src:
+        return "noop"
+
+    mention = {
+        "title": src["title"] or "",
+        "url": wechat_url or "",
+        "feed": feed_name or "",
+        "pub_date": src["pub_date"] or "",
+        "ingest_at": src["ingest_at"] or now,
+    }
+
+    entry_key = hashlib.sha256(f"wx_doi|{doi}".encode()).hexdigest()
+    row = conn.execute(
+        "SELECT article_key, abstract FROM entries WHERE article_key=?",
+        (entry_key,),
+    ).fetchone()
+
+    if not row:
+        mentions = [mention]
+        conn.execute(
+            """INSERT INTO entries
+               (article_key, feed_id, ingest_source, title, journal, doi,
+                source_url, abstract, pub_date, meta_status, discovery_type,
+                is_read, ingest_at, updated_at)
+               VALUES (?, 'wx_doi', 'wechat_prefilter', ?, '', ?, ?,
+                       ?, '', 'meta_partial', 'wx_doi_entry',
+                       0, ?, ?)""",
+            (entry_key, mention["title"], doi, wechat_url or "",
+             _json.dumps(mentions, ensure_ascii=False), now, now),
+        )
+        return "create"
+
+    # 已有：mentions 追加（按归一化 URL 去重）；重复命中仅前置时间不加注。
+    # v2.40：微信链接 tempkey 是会话级参数，同文两次推送 URL 不同——归一化(去 tempkey
+    #   及其后的 query/锚点)后再比对，防同文多 URL 重复加注。
+    try:
+        mentions = _json.loads(row["abstract"] or "[]")
+        if not isinstance(mentions, list):
+            mentions = []
+    except Exception:
+        mentions = []
+    norm = _norm_wechat_url(mention["url"])
+    if norm and any(_norm_wechat_url(m.get("url", "")) == norm for m in mentions):
+        conn.execute(
+            "UPDATE entries SET ingest_at=?, updated_at=? WHERE article_key=?",
+            (now, now, entry_key),
+        )
+        return "noop"
+    mentions.append(mention)
+    conn.execute(
+        "UPDATE entries SET abstract=?, ingest_at=?, updated_at=? WHERE article_key=?",
+        (_json.dumps(mentions, ensure_ascii=False), now, now, entry_key),
+    )
+    return "update"
 
 
 def scan_one(
