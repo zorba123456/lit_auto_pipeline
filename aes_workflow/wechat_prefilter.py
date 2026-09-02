@@ -371,17 +371,16 @@ def _upgrade_to_object(
         action = "reuse_existing"
     else:
         target_obj = doi
+        # v2.22 对象层清理后 objects 仅保留权威列；来源信息记 object_sources（来源表），不进 objects
         conn.execute(
             """INSERT OR IGNORE INTO objects
                (object_id, id_type, stage, is_final_version, has_video, video_available,
                 normalize_status, screen_status, tag_status,
-                source_group, origin_channel, origin_detail, origin_url,
                 created_at, updated_at)
                VALUES (?, 'doi', 'discovered', 'unknown', 'unknown', 'unknown',
                        'done', 'pending', NULL,
-                       'wechat_scan', 'wechat', ?, ?,
                        ?, ?)""",
-            (doi, feed_name or "未知", source_url, now, now),
+            (doi, now, now),
         )
         action = "create_doi"
 
@@ -397,17 +396,82 @@ def _upgrade_to_object(
            WHERE NOT EXISTS (SELECT 1 FROM object_sources WHERE object_id=? AND channel='wechat' AND source_detail=?)""",
         (target_obj, feed_name or "未知", source_url, now, target_obj, feed_name or "未知"),
     )
-    # 条目改挂真实 DOI 对象（微信条目此前无 title_hash 占位，若无占位则跳过 superseded）
-    conn.execute(
-        "UPDATE entries SET object_id=?, updated_at=? WHERE article_key=?",
-        (target_obj, now, article_key),
-    )
+    # 条目改挂真实 DOI 对象：v2.22 后 entries 无 object_id 列，挂接关系仅存 entry_object_links
     conn.execute(
         """UPDATE objects SET normalize_status='superseded', updated_at=?
            WHERE object_id=? AND id_type='title_hash'""",
         (now, article_key),
     )
     return action
+
+
+# ── weekly_JC 专用：文末参考文献反查（正文无明文 DOI 时的补充算法）────────
+# 仅适用于「微颗粒文献读书会Weekly JC」：该号推文正文从不嵌明文 DOI，
+# 文献线索全在文末「参考文献」区（N. 编号，多为英文引文串）。
+# 规则：refs 全部解析 → Crossref query.bibliographic 逐条反查 → 命中全部入库。
+# 不做「主文献」判定（综述型推文多篇均有效，位置/日期信号经实测不可靠，2026-09-02 定稿）。
+
+_REF_SECTION_SPLIT = re.compile(r"参考文献|References")
+_REF_TAIL_CUT = re.compile(r"声明|往期推荐|撰稿|校审")
+_REF_ITEM_SPLIT = re.compile(r"(?:^|\n|\s)\d{1,2}\.\s*")
+_REF_MIN_LEN = 30          # 短于此的片段视为切分残渣
+_LATIN = re.compile(r"[A-Za-z]{4}")  # 英文引文判定（中文教材类引用天然排除）
+
+
+def parse_reference_section(text: str) -> list[str]:
+    """从微信推文纯文本中切出文末参考文献条目列表。无 refs 区返回空表。"""
+    m = _REF_SECTION_SPLIT.search(text)
+    if not m:
+        return []
+    body = text[m.end():]
+    cut = _REF_TAIL_CUT.search(body)
+    if cut:
+        body = body[: cut.start()]
+    parts = _REF_ITEM_SPLIT.split(body)
+    refs = []
+    for p in parts:
+        p = p.strip()
+        if len(p) >= _REF_MIN_LEN and _LATIN.search(p):
+            refs.append(p)
+    return refs
+
+
+def crossref_bibliographic_to_doi(ref: str, score_min: float = 80.0) -> str | None:
+    """整条英文引文串 → Crossref query.bibliographic 反查 DOI（score 阈值拦截误匹配）。"""
+    import requests
+    try:
+        resp = requests.get(
+            "https://api.crossref.org/works",
+            params={"query.bibliographic": ref[:500], "rows": 1},
+            headers={"User-Agent": "aes-workbench/1.0 (mailto:workbench@example.com)"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("message", {}).get("items", [])
+    except Exception:
+        return None
+    if not items:
+        return None
+    top = items[0]
+    if float(top.get("score") or 0) < score_min:
+        return None
+    doi = (top.get("DOI") or "").lower()
+    return doi or None
+
+
+def scan_references_for_dois(text: str) -> list[dict]:
+    """weekly_JC 补充算法入口：解析 refs 并逐条反查，返回去重后的 identifier 列表。"""
+    refs = parse_reference_section(text)
+    if not refs:
+        return []
+    seen: set[str] = set()
+    result: list[dict] = []
+    for ref in refs:
+        doi = crossref_bibliographic_to_doi(ref)
+        if doi and doi not in seen:
+            seen.add(doi)
+            result.append({"type": "doi", "value": doi, "via": "ref_backquery"})
+    return result
 
 
 def update_entry_with_identifiers(
@@ -453,13 +517,7 @@ def update_entry_with_identifiers(
     else:
         return  # 没有有效标识符，不升级
 
-    # 写 entry_identifiers
-    for idf in identifiers:
-        conn.execute(
-            """INSERT OR IGNORE INTO entry_identifiers (id_type, id_value, article_key)
-               VALUES (?, ?, ?)""",
-            (idf["type"], idf["value"], article_key),
-        )
+    # v2.22 后 entry_identifiers 表已随旧对象层清除，标识符只存 entries 主表列
 
 
 def scan_one(
@@ -493,6 +551,15 @@ def scan_one(
                     ocr_used = True
                     break
 
+    # Tier 3: 文末参考文献反查（仅 微颗粒文献读书会Weekly JC——该号正文无明文 DOI，
+    #   文献全在文末 refs 区；refs 全部 Crossref 反查，命中全部入库，不做主文献判定）
+    ref_query_used = False
+    if not ids and feed_name and (
+        "weekly_jc" in feed_name.lower() or "微颗粒文献读书会" in feed_name
+    ):
+        ids = scan_references_for_dois(text)
+        ref_query_used = bool(ids)
+
     if ids:
         update_entry_with_identifiers(conn, article_key, ids, source_url, feed_name)
 
@@ -500,6 +567,7 @@ def scan_one(
         "status": "found" if ids else "no_id",
         "identifiers": ids,
         "ocr_used": ocr_used,
+        "ref_query_used": ref_query_used,
         "text_len": len(text),
     }
 
