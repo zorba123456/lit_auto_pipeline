@@ -577,24 +577,57 @@ def _upsert_wx_doi_entry(
 
     entry_key = hashlib.sha256(f"wx_doi|{doi}".encode()).hexdigest()
     row = conn.execute(
-        "SELECT article_key, abstract FROM entries WHERE article_key=?",
+        "SELECT article_key, abstract, title FROM entries WHERE article_key=?",
         (entry_key,),
     ).fetchone()
 
+    # v2.47 标题改为 DOI 对应文献标题（Crossref），来源微信推文信息只留在 mentions 摘要里。
+    #   查询失败/无标题 → 回退源推文标题，不阻塞主扫描。
+    lit_title = ""
+    _meta = None
+    try:
+        from aes_workflow.meta_enrich import enrich_from_crossref
+        _meta = enrich_from_crossref(doi, timeout=10.0)
+        if _meta and _meta.get("title"):
+            lit_title = _meta["title"].strip()
+    except Exception:
+        lit_title = ""
+    if not lit_title:
+        lit_title = mention["title"]
+
     if not row:
         mentions = [mention]
+        # v2.47 条目卡片规范仿期刊源：标题/期刊/出版日期/作者取文献元数据，
+        #   source_url = 文献原文链接（doi.org），推文信息只在 mentions 摘要。
+        meta_fields = _meta or {}
+        lit_url = meta_fields.get("source_url") or (f"https://doi.org/{doi}" if doi else (wechat_url or ""))
         conn.execute(
             """INSERT INTO entries
-               (article_key, feed_id, ingest_source, title, journal, doi,
+               (article_key, feed_id, ingest_source, title, journal, authors, doi,
                 source_url, abstract, pub_date, meta_status, discovery_type,
                 is_read, ingest_at, updated_at)
-               VALUES (?, 'wx_doi', 'wechat_prefilter', ?, '', ?, ?,
-                       ?, '', 'meta_partial', 'wx_doi_entry',
+               VALUES (?, 'wx_doi', 'wechat_prefilter', ?, ?, ?, ?,
+                       ?, ?, ?, 'meta_partial', 'wx_doi_entry',
                        0, ?, ?)""",
-            (entry_key, mention["title"], doi, wechat_url or "",
-             _json.dumps(mentions, ensure_ascii=False), now, now),
+            (entry_key, lit_title, meta_fields.get("journal", ""),
+             meta_fields.get("authors", ""), doi, lit_url,
+             _json.dumps(mentions, ensure_ascii=False),
+             meta_fields.get("pub_date", ""), now, now),
         )
         return "create"
+
+    # 已有：卡片元数据一次性升级为文献元数据（旧条目仍是推文标题/空期刊时空日期）；
+    #   mentions 追加。source_url 保留推文链接不动（提及溯源）。
+    if _meta and (row["title"] != lit_title):
+        conn.execute(
+            """UPDATE entries SET title=?, journal=CASE WHEN journal='' OR journal IS NULL THEN ? ELSE journal END,
+                   authors=CASE WHEN authors='' OR authors IS NULL THEN ? ELSE authors END,
+                   pub_date=CASE WHEN pub_date='' OR pub_date IS NULL THEN ? ELSE pub_date END,
+                   source_url=CASE WHEN source_url='' OR source_url IS NULL THEN ? ELSE source_url END
+               WHERE article_key=?""",
+            (lit_title, _meta.get("journal", ""), _meta.get("authors", ""),
+             _meta.get("pub_date", ""), _meta.get("source_url", ""), entry_key),
+        )
 
     # 已有：mentions 追加（按归一化 URL 去重）；重复命中仅前置时间不加注。
     # v2.40：微信链接 tempkey 是会话级参数，同文两次推送 URL 不同——归一化(去 tempkey
