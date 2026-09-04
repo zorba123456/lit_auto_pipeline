@@ -259,6 +259,83 @@ def _truncate_doi(raw: str) -> str | None:
     return norm
 
 
+# ── v2.48 yiigle(CMA) 站内标题反查 ─────────────────────────
+# 背景：中华医学会系列 DOI(10.3760/...) 注册在中文 DOI 系统，Crossref 查不到，
+#   微信 DOI 条目只能回退推文标题。yiigle.com 站内检索接口不反爬(纯 POST 无需登录)，
+#   命中后返回 artDoi/artTitle/journalCn/artUrl，可同时修正残缺 DOI。
+_YIIGLE_SEARCH_URL = "https://www.yiigle.com/apiVue/search/searchList"
+_YIIGLE_TIMEOUT = 15.0
+# 推文标题常见栏目前缀，拼进 ES 整串查询会 0 命中，先剥除
+_YIIGLE_PREFIX_WORDS = [
+    "前沿论文解读", "国际关注", "专家共识", "病例报告", "经验总结",
+    "临床研究", "文献解读", "基础研究", "综述", "指南", "快报",
+]
+
+
+def _norm_title_strong(t: str) -> str:
+    """强归一：只留 CJK+字母数字小写，用于标题同一性判定。"""
+    import re as _re
+    return _re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", (t or "").lower())
+
+
+def _yiigle_clean_query(title: str) -> str:
+    t = re.sub(r"[【】|《》「」？?：:；;，,。\s]+", " ", title or "").strip()
+    changed = True
+    while changed:
+        changed = False
+        for w in sorted(_YIIGLE_PREFIX_WORDS, key=len, reverse=True):
+            if t.startswith(w):
+                t = t[len(w):].strip()
+                changed = True
+    return t
+
+
+def yiigle_title_search(title: str, rows: int = 3) -> dict | None:
+    """yiigle 站内检索按标题反查文献。命中返回 {title, doi, journal, artUrl}，未命中 None。
+
+    2026-09 实测：POST JSON，字段 searchText(检索词)+query(同词)；ES 整串匹配，
+    标点/前缀词粘入会 0 命中，故先 _yiigle_clean_query。无需登录/无反爬。
+    ⚠️ 传输必须走 subprocess curl：yiigle 做 TLS 指纹过滤，python urllib/requests/
+    curl_cffi 握手一律被 RST(SSL EOF)，唯 curl 命令行稳定通过(2026-09-04 实测)。
+    """
+    import json as _j
+    import subprocess as _sp
+
+    q = _yiigle_clean_query(title)
+    if not q:
+        return None
+    payload = {
+        "type": None, "sortField": None, "page": 1, "searchType": None,
+        "pageSize": rows, "queryString": "", "query": q, "searchText": q,
+        "searchLog": "", "isAggregations": "N", "logintoken": None,
+    }
+    try:
+        proc = _sp.run(
+            ["curl", "-s", "--max-time", str(int(_YIIGLE_TIMEOUT)),
+             "-X", "POST", _YIIGLE_SEARCH_URL,
+             "-H", "Content-Type: application/json",
+             "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+             "-d", _j.dumps(payload, ensure_ascii=False)],
+            capture_output=True, text=True, timeout=_YIIGLE_TIMEOUT + 5,
+        )
+        data = _j.loads(proc.stdout)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or data.get("code") != 200:
+        return None
+    infos = ((data.get("data") or {}).get("result") or {}).get("infos") or []
+    if not infos:
+        return None
+    top = infos[0]
+    return {
+        "title": (top.get("artDropTitle") or top.get("artTitle") or "").strip(),
+        "doi": (top.get("artDoi") or "").strip(),
+        "journal": (top.get("journalCn") or "").strip(),
+        "artUrl": (top.get("artUrl") or "").strip(),
+    }
+
+
 
 def extract_identifiers_from_text(text: str) -> list[dict]:
     """从纯文本中扫描 DOI/PMID。"""
@@ -268,6 +345,9 @@ def extract_identifiers_from_text(text: str) -> list[dict]:
     # (如 "10.1002/jum.70306https://doi.org/...") 且破坏 \b 边界(吞相邻 CJK/标签字母)。
     # 微信正文为 HTML 富文本提取(带真实空白/换行)，直接在原文上按边界匹配即可。
     # OCR 空格变形由独立 OCR 路径(use_ocr)处理，不走此处；_truncate_doi 仍做防御性截断。
+    # v2.48：Unicode 连字符归一——微信推文常把 DOI 写成 U+2011(‑)/U+2010(‐)/U+2212(−)，
+    #   正则字符集只认 ASCII，会截断成 "10.1038/s41467" 这类残缺前缀。先归一成 '-' 再匹配。
+    text = re.sub(r"[\u2010\u2011\u2012\u2013\u2212]", "-", text)
     seen = set()
     result = []
     dois = set()
@@ -583,6 +663,8 @@ def _upsert_wx_doi_entry(
 
     # v2.47 标题改为 DOI 对应文献标题（Crossref），来源微信推文信息只留在 mentions 摘要里。
     #   查询失败/无标题 → 回退源推文标题，不阻塞主扫描。
+    # v2.48 Crossref 未命中（如 10.3760 中华医学会系列注册在中文 DOI，不在 Crossref）
+    #   → yiigle(CMA) 站内检索按推文标题反查，命中(标题强归一一致)取其 DOI 元数据。
     lit_title = ""
     _meta = None
     try:
@@ -592,6 +674,23 @@ def _upsert_wx_doi_entry(
             lit_title = _meta["title"].strip()
     except Exception:
         lit_title = ""
+    if not _meta or not lit_title:
+        try:
+            cma = yiigle_title_search(mention["title"])
+            # 判定基准用「剥前缀后的查询词」：推文常带【临床研究】等栏目词，文献标题没有
+            if cma and _norm_title_strong(cma["title"]) == _norm_title_strong(_yiigle_clean_query(mention["title"])):
+                _meta = {
+                    "title": cma["title"],
+                    "journal": cma.get("journal", ""),
+                    "source_url": cma.get("artUrl", ""),
+                }
+                lit_title = cma["title"]
+                # 条目 DOI 修正为 CMA 官方 DOI（推文里的 DOI 可能残缺/错抄）
+                if cma.get("doi"):
+                    doi = cma["doi"].strip().lower()
+                    entry_key = hashlib.sha256(f"wx_doi|{doi}".encode()).hexdigest()
+        except Exception:
+            pass
     if not lit_title:
         lit_title = mention["title"]
 
