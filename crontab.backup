@@ -48,3 +48,5 @@
 5 11 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
 5 18 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
 */10 * * * * cd /Users/meiyiwangluokeji/coding/aes-workbench && /usr/bin/python3 pipeline/p_ingest.py >> data/p_ingest_cron.log 2>&1
+# IMA 追加晚班巡查（捕捉 ~19:50 集中上传）
+0 21 * * * /Users/meiyiwangluokeji/coding/lit_auto_pipeline/run_ima_scan.sh
