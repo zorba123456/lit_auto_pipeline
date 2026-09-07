@@ -25,7 +25,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from aes_workflow.db import db_session, utc_now
-from aes_workflow.ingest_ids import normalize_doi
+from aes_workflow.ingest_ids import normalize_doi, extract_doi_candidates
 
 # ── 路径 ───────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
@@ -338,26 +338,31 @@ def yiigle_title_search(title: str, rows: int = 3) -> dict | None:
 
 
 def extract_identifiers_from_text(text: str) -> list[dict]:
-    """从纯文本中扫描 DOI/PMID。"""
+    """从纯文本中扫描 DOI/PMID。
+
+    2026-09 多候选定稿：返回全部不同文献的 DOI（不再只取第一个）。
+    同一文献的多形态重复（citation 明写 vs 裸文本 vs URL 路径）经
+    ingest_ids.extract_doi_candidates 分级 + 前缀包含去重收敛，
+    OUP 等出版社 URL 的站内尾段（/doi/<doi>/<site_id>）同步剥除。
+    """
     if not text:
         return []
-    # v2.11.7(bug 修复)：不再对全文做 \s+ 去空白——那会把 DOI 与相邻词/URL 粘成串
-    # (如 "10.1002/jum.70306https://doi.org/...") 且破坏 \b 边界(吞相邻 CJK/标签字母)。
-    # 微信正文为 HTML 富文本提取(带真实空白/换行)，直接在原文上按边界匹配即可。
-    # OCR 空格变形由独立 OCR 路径(use_ocr)处理，不走此处；_truncate_doi 仍做防御性截断。
-    # v2.48：Unicode 连字符归一——微信推文常把 DOI 写成 U+2011(‑)/U+2010(‐)/U+2212(−)，
-    #   正则字符集只认 ASCII，会截断成 "10.1038/s41467" 这类残缺前缀。先归一成 '-' 再匹配。
+    # v2.48：Unicode 连字符归一（详见历史注释）
     text = re.sub(r"[\u2010\u2011\u2012\u2013\u2212]", "-", text)
-    seen = set()
-    result = []
-    dois = set()
-    dois |= set(DOI_PATTERN.findall(text))
-    dois |= set(URL_DOI_PATTERN.findall(text))
-    for doi in dois:
-        norm = _truncate_doi(doi)
-        if norm and norm not in seen:
-            seen.add(norm)
-            result.append({"type": "doi", "value": norm})
+    seen: set[str] = set()
+    result: list[dict] = []
+    # DOI 候选：分级去重后全量保留；「原文链接：」后的 URL 行按 url 级处理，
+    # 正文其余部分按 citation/text 级。两段分别提取再合并。
+    link_m = re.search(r"原文链接[:：]?\s*\n?\s*(https?://\S+)", text)
+    link_part, body_part = "", text
+    if link_m:
+        link_part = link_m.group(1)
+        body_part = text[: link_m.start()]
+    cands = extract_doi_candidates(citation=body_part, link=link_part)
+    for c in cands:
+        if c["value"] not in seen:
+            seen.add(c["value"])
+            result.append({"type": "doi", "value": c["value"], "via": c["src"]})
     pmids = set(PMID_PATTERN.findall(text))
     for pmid in pmids:
         if pmid not in seen:
@@ -561,8 +566,12 @@ def update_entry_with_identifiers(
     wechat_url: str,
     feed_name: str,
 ) -> None:
-    """将提取到的标识符更新到 entries 表和 entry_identifiers。
+    """将提取到的标识符更新到 entries 表。
 
+    2026-09 多 DOI 定稿：一篇推文允许引多篇文献——全部有效 DOI 各建一条
+    wx_doi_entry 汇总条目（对齐微颗粒 weekly_JC「全部入库」先例）；
+    entries 主表 doi 取最佳候选（identifiers 已按 citation>text>url 排序），
+    其余 DOI 仅进 wx_doi_entry，不覆盖主表。
     §13.6 对象化补缺：扫出 DOI 后将微信条目升级为文献对象
     （建/复用 real DOI 对象 + 挂 entry_object_links + 记 wechat 来源）。
     """
@@ -590,10 +599,14 @@ def update_entry_with_identifiers(
         )
         # v2.39 微信 DOI 汇总列表：每个 DOI 一条独立条目（discovery_type='wx_doi_entry'），
         # 供 C 模块侧栏「微信 DOI」类目展示。首命中建条，再命中加注提及+前置入库时间。
-        try:
-            _upsert_wx_doi_entry(conn, article_key, updates["doi"], wechat_url, feed_name, now)
-        except Exception as e:
-            print(f"[wx-doi-entry] ⚠️ 汇总条目写入失败(不阻塞主流程): {e}", flush=True)
+        # 2026-09：全部 DOI 候选各建一条（多文献推文场景），不止主 DOI。
+        for idf in identifiers:
+            if idf.get("type") != "doi":
+                continue
+            try:
+                _upsert_wx_doi_entry(conn, article_key, idf["value"], wechat_url, feed_name, now)
+            except Exception as e:
+                print(f"[wx-doi-entry] ⚠️ 汇总条目写入失败(不阻塞主流程): {e}", flush=True)
     elif updates.get("pmid"):
         conn.execute(
             "UPDATE entries SET pmid = ?, discovery_type = 'wechat_discovery', "
