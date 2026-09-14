@@ -28,6 +28,17 @@ ID_PRIORITY = ("doi", "pmid", "pii", "platform_id")
 _CAND_PRIORITY = {"citation": 0, "text": 1, "url": 2}
 
 
+def _cut_embedded_url(doi: str) -> str:
+    """DOI 尾段吞并了紧贴的下一个 URL（推文常见「DOIhttps://doi.org/DOI」零空格拼接）：
+    在 tail 内截断于 http(s):// 或 doi.org/ 处。"""
+    cut = len(doi)
+    for pat in ("https://", "http://", "doi.org/"):
+        j = doi.find(pat)
+        if j != -1:
+            cut = min(cut, j)
+    return doi[:cut] if cut < len(doi) else doi
+
+
 def _strip_url_site_tail(doi: str, src: str, raw_url: str | None) -> str:
     """URL 路径抽取的 DOI 剥出版社站内尾段（见上规则 2）。citation/text 形态不动。"""
     if src != "url":
@@ -41,6 +52,10 @@ def _strip_url_site_tail(doi: str, src: str, raw_url: str | None) -> str:
     if len(tail) < 2:
         return doi
     if not tail[-1].isdigit():
+        # 增强(2026-09)：PDF 下载链接整段误当 DOI（10.1093/asj/sjag170/70729992/sjag170.pdf）
+        if tail[-1].lower().endswith(".pdf"):
+            stripped = "/".join(segs[:-1])
+            return _strip_url_site_tail(stripped, src, raw_url)  # 递归再剥 OUP 型纯数字尾段
         return doi
     if not any(any(ch.isalpha() for ch in s) for s in tail[:-1]):
         return doi
@@ -68,7 +83,7 @@ def extract_doi_candidates(*, link: str = "", guid: str = "", citation: str = ""
         else:
             hits += [d for d in DOI_RE.findall(blob) if d not in hits]
         for raw in hits:
-            norm = normalize_doi(_strip_url_site_tail(raw, src, blob if src == "url" else None))
+            norm = normalize_doi(_strip_url_site_tail(_cut_embedded_url(raw), src, blob if src == "url" else None))
             if norm and norm not in seen_raw:
                 seen_raw.add(norm)
                 cands.append({"value": norm, "src": src})
