@@ -337,6 +337,51 @@ def yiigle_title_search(title: str, rows: int = 3) -> dict | None:
 
 
 
+def yiigle_doi_search(doi: str) -> dict | None:
+    """yiigle 站内检索按 **DOI 直查**（v2.53）。命中返回 {title, doi, journal, artUrl}。
+
+    2026-09-14 实测：同一 searchList 接口，searchText=DOI 精确命中且唯一
+    （ES 对 DOI 串整串匹配），返回 artTitle/artDoi/journalCn/artUrl/摘要，
+    无需登录/无反爬。传输必须走 subprocess curl（TLS 指纹过滤，同 yiigle_title_search）。
+    """
+    import json as _j
+    import subprocess as _sp
+
+    d = (doi or "").strip()
+    if not d:
+        return None
+    payload = {
+        "type": None, "sortField": None, "page": 1, "searchType": None,
+        "pageSize": 3, "queryString": "", "query": d, "searchText": d,
+        "searchLog": "", "isAggregations": "N", "logintoken": None,
+    }
+    try:
+        proc = _sp.run(
+            ["curl", "-s", "--max-time", str(int(_YIIGLE_TIMEOUT)),
+             "-X", "POST", _YIIGLE_SEARCH_URL,
+             "-H", "Content-Type: application/json",
+             "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+             "-d", _j.dumps(payload, ensure_ascii=False)],
+            capture_output=True, text=True, timeout=_YIIGLE_TIMEOUT + 5,
+        )
+        data = _j.loads(proc.stdout)
+    except Exception:
+        return None
+    if not isinstance(data, dict) or data.get("code") != 200:
+        return None
+    infos = ((data.get("data") or {}).get("result") or {}).get("infos") or []
+    if not infos:
+        return None
+    top = infos[0]
+    return {
+        "title": (top.get("artDropTitle") or top.get("artTitle") or "").strip(),
+        "doi": (top.get("artDoi") or "").strip(),
+        "journal": (top.get("journalCn") or "").strip(),
+        "artUrl": (top.get("artUrl") or "").strip(),
+    }
+
+
 def extract_identifiers_from_text(text: str) -> list[dict]:
     """从纯文本中扫描 DOI/PMID。
 
@@ -676,8 +721,11 @@ def _upsert_wx_doi_entry(
 
     # v2.47 标题改为 DOI 对应文献标题（Crossref），来源微信推文信息只留在 mentions 摘要里。
     #   查询失败/无标题 → 回退源推文标题，不阻塞主扫描。
-    # v2.48 Crossref 未命中（如 10.3760 中华医学会系列注册在中文 DOI，不在 Crossref）
-    #   → yiigle(CMA) 站内检索按推文标题反查，命中(标题强归一一致)取其 DOI 元数据。
+    # v2.53 Crossref 未命中（如 10.3760 中华医学会系列注册在中文 DOI，不在 Crossref）
+    #   → yiigle(CMA) 站内检索改用 **DOI 直查**（searchText=DOI，2026-09-14 实测
+    #   searchList 接口对 DOI 精确命中且唯一，含 artTitle/journalCn/artUrl/摘要）。
+    #   ⚠️ 废弃旧「按推文标题反查」：推文是营销标题（如「肉毒毒素打咬肌，真的会…」），
+    #   与文献标题毫无关系，反查必然 0 命中，导致条目永远残留推文标题。
     lit_title = ""
     _meta = None
     try:
@@ -689,9 +737,8 @@ def _upsert_wx_doi_entry(
         lit_title = ""
     if not _meta or not lit_title:
         try:
-            cma = yiigle_title_search(mention["title"])
-            # 判定基准用「剥前缀后的查询词」：推文常带【临床研究】等栏目词，文献标题没有
-            if cma and _norm_title_strong(cma["title"]) == _norm_title_strong(_yiigle_clean_query(mention["title"])):
+            cma = yiigle_doi_search(doi)
+            if cma and cma.get("title"):
                 _meta = {
                     "title": cma["title"],
                     "journal": cma.get("journal", ""),
