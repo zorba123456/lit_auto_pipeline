@@ -105,6 +105,11 @@ def normalize_doi(raw: str | None) -> str | None:
     for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
         if s.startswith(prefix):
             s = s[len(prefix) :]
+    # DOI 是纯 ASCII 标识符：在首个非 ASCII 字符（中文批注「（2025年卷期…」等）处截断
+    for i, ch in enumerate(s):
+        if ord(ch) > 127:
+            s = s[:i]
+            break
     s = s.rstrip(".,;)")
     return s or None
 
