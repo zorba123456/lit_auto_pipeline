@@ -624,6 +624,7 @@ def update_entry_with_identifiers(
 
     # 收集标识符写入主表
     updates = {}
+    dois = [idf["value"] for idf in identifiers if idf["type"] == "doi"]
     for idf in identifiers:
         t, v = idf["type"], idf["value"]
         if t == "doi" and not updates.get("doi"):
@@ -631,35 +632,68 @@ def update_entry_with_identifiers(
         elif t == "pmid" and not updates.get("pmid"):
             updates["pmid"] = v
 
+    # v2.75 多 DOI 定稿：推文扫出多篇文献（len>1）时主条目不再挂任一 DOI
+    #   （推文≠文献，挂哪个都任意误导）；改写 wechat_discovery_sources=JSON
+    #   {wx_doi_count:N}，前端据此渲染中性「DOI×N」标记（区别于无 DOI 条目、
+    #   也区别于单 DOI 的可点胶囊）。全部文献各建 wx_doi_entry 汇总条目不变。
+    if len(dois) > 1:
+        updates.pop("doi", None)
+        updates["wx_doi_count"] = len(dois)
+
     if updates.get("doi"):
         conn.execute(
             "UPDATE entries SET doi = ?, discovery_type = 'wechat_discovery', "
             "meta_status = 'meta_partial', updated_at = ? WHERE article_key = ?",
             (updates["doi"], now, article_key),
         )
-        # 对象化补缺：把真实 DOI 升级为文献对象
-        _ensure_objects_layer(conn)
-        _upgrade_to_object(
-            conn, article_key, updates["doi"], wechat_url, feed_name
-        )
-        # v2.39 微信 DOI 汇总列表：每个 DOI 一条独立条目（discovery_type='wx_doi_entry'），
-        # 供 C 模块侧栏「微信 DOI」类目展示。首命中建条，再命中加注提及+前置入库时间。
-        # 2026-09：全部 DOI 候选各建一条（多文献推文场景），不止主 DOI。
-        for idf in identifiers:
-            if idf.get("type") != "doi":
-                continue
-            try:
-                _upsert_wx_doi_entry(conn, article_key, idf["value"], wechat_url, feed_name, now)
-            except Exception as e:
-                print(f"[wx-doi-entry] ⚠️ 汇总条目写入失败(不阻塞主流程): {e}", flush=True)
     elif updates.get("pmid"):
         conn.execute(
             "UPDATE entries SET pmid = ?, discovery_type = 'wechat_discovery', "
             "meta_status = 'meta_partial', updated_at = ? WHERE article_key = ?",
             (updates["pmid"], now, article_key),
         )
-    else:
+    elif not updates.get("wx_doi_count"):
         return  # 没有有效标识符，不升级
+    # v2.75：多 DOI 时上面 doi/pmid 均不写，仅落 wx_doi_entry + 计数标记，不 return。
+
+    if updates.get("doi"):
+        # 对象化补缺：把真实 DOI 升级为文献对象
+        _ensure_objects_layer(conn)
+        _upgrade_to_object(
+            conn, article_key, updates["doi"], wechat_url, feed_name
+        )
+    # v2.39 微信 DOI 汇总列表：每个 DOI 一条独立条目（discovery_type='wx_doi_entry'），
+    # 供 C 模块侧栏「微信 DOI」类目展示。首命中建条，再命中加注提及+前置入库时间。
+    # 2026-09：全部 DOI 候选各建一条（多文献推文场景），不止主 DOI。
+    for idf in identifiers:
+        if idf.get("type") != "doi":
+            continue
+        try:
+            _upsert_wx_doi_entry(conn, article_key, idf["value"], wechat_url, feed_name, now)
+        except Exception as e:
+            print(f"[wx-doi-entry] ⚠️ 汇总条目写入失败(不阻塞主流程): {e}", flush=True)
+
+    # v2.75 多 DOI 标记：wechat_discovery_sources 存 {wx_doi_count:N}（仅多 DOI 时记，
+    #   前端单 DOI 走原 doi 胶囊、多 DOI 走「DOI×N」标记）。
+    #   原值可能为空列；JSON 合并前先解析，幂等重扫不叠加。
+    if updates.get("wx_doi_count"):
+        try:
+            cur = conn.execute(
+                "SELECT wechat_discovery_sources FROM entries WHERE article_key=?",
+                (article_key,),
+            ).fetchone()
+            src = {}
+            if cur and cur[0]:
+                _old = json.loads(cur[0])
+                if isinstance(_old, dict):
+                    src = _old
+            src["wx_doi_count"] = updates["wx_doi_count"]
+            conn.execute(
+                "UPDATE entries SET wechat_discovery_sources=?, updated_at=? WHERE article_key=?",
+                (json.dumps(src, ensure_ascii=False), now, article_key),
+            )
+        except Exception as e:
+            print(f"[wx-doi-entry] ⚠️ DOI 计数标记写入失败(不阻塞): {e}", flush=True)
 
     # v2.22 后 entry_identifiers 表已随旧对象层清除，标识符只存 entries 主表列
 
@@ -749,6 +783,21 @@ def _upsert_wx_doi_entry(
                 if cma.get("doi"):
                     doi = cma["doi"].strip().lower()
                     entry_key = hashlib.sha256(f"wx_doi|{doi}".encode()).hexdigest()
+        except Exception:
+            pass
+    if not _meta or not lit_title:
+        # v2.75 中文 DOI 第三链：chndoi(纯curl)/万方(离线)。覆盖 10.16761(CNKI 系)、
+        #   10.15909(中国美容医学) 等 Crossref/yiigle 都查不到的中文注册 DOI。
+        #   chndoi 页面无期刊字段（publisher 是「同方知网」这类注册机构），journal 留空。
+        try:
+            from .cn_doi_meta import cn_doi_search
+            cn = cn_doi_search(doi)
+            if cn and cn.get("title"):
+                _meta = {
+                    "title": cn["title"],
+                    "source_url": cn.get("source_url", ""),
+                }
+                lit_title = cn["title"]
         except Exception:
             pass
     if not lit_title:

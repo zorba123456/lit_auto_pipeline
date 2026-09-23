@@ -33,8 +33,9 @@ def backfill(*, dry: bool = False) -> tuple[int, int]:
     for row in rows:
         doi = (row["doi"] or "").strip().strip("。）(;,，")
         title = row["title"] or ""
-        # 目次页标题本来就是「目次」，反查无意义；残缺 DOI（含空格）跳过
-        if not doi or " " in doi or "目次" in title:
+        # 目次页标题行不再跳过：目次推文里的单篇 DOI 是真实文献，反查后回填文献标题
+        # （v2.75 修订：原「目次 in title 跳过」导致 42 条 10.15909 目次 DOI 永远 miss）
+        if not doi or " " in doi:
             miss += 1
             continue
         meta = None
@@ -65,7 +66,8 @@ def backfill(*, dry: bool = False) -> tuple[int, int]:
                         """UPDATE entries SET title=?,
                            journal=CASE WHEN journal='' OR journal IS NULL THEN ? ELSE journal END
                            WHERE article_key=? AND (journal='' OR journal IS NULL)""",
-                        (meta["title"], meta.get("publisher", "") or meta.get("journal", ""), row["article_key"]),
+                        (meta["title"], meta.get("journal", "") or "", row["article_key"]),
+                        # v2.75: 不再用 publisher（「同方知网」这类注册机构）污染 journal 列
                     )
                 fixed += 1
                 print(f"FIX {doi} -> {meta['title'][:45]} | {meta.get('publisher', '') or meta.get('source', '')}", flush=True)
