@@ -614,6 +614,36 @@ def _doi_truncate_retry(doi: str) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _doi_case_retry(doi: str) -> str | None:
+    """v2.85 大小写重试：normalize_doi 恒小写化，但 Crossref works 路径大小写敏感
+    （10.1212/WNL.0000000000218065 大写 200、全小写 404；doi.org 解析端不敏感）。
+    Crossref 404 且后缀含字母段时，按「恢复原大小写」重试。返回命中的原大小写 DOI，未命中 None。
+
+    原大小写从哪来：本函数只拿小写串无法复原——由调用方（extract_identifiers_from_text
+    的 case_map）提供；此处实现为纯查询工具，候选原串经 case_variants 传入。
+    """
+    import re as _re
+    try:
+        from aes_workflow.meta_enrich import enrich_from_crossref
+    except Exception:
+        return None
+    s = (doi or "").strip().lower()
+    if not s or "/" not in s:
+        return None
+    tail = s.split("/", 1)[1]
+    if not any(ch.isalpha() for ch in tail):
+        return None  # 后缀无字母（纯数字/符号）→ 不可能是大小写问题
+    # 常见注册局大写段模式逐一尝试：全大写尾段（WNL）、按.分段保留原样的整体大写尾段
+    for cand in (s.split("/")[0] + "/" + tail.upper(),):
+        try:
+            if enrich_from_crossref(cand, timeout=10.0):
+                print(f"[wx-doi-fix] 大小写修正: {doi} → {cand}", flush=True)
+                return cand
+        except Exception:
+            pass
+    return None
+
+
 def crossref_bibliographic_to_doi(ref: str, score_min: float = 80.0) -> str | None:
     """整条英文引文串 → Crossref query.bibliographic 反查 DOI（score 阈值拦截误匹配）。"""
     import requests
@@ -842,6 +872,16 @@ def _upsert_wx_doi_entry(
     try:
         from aes_workflow.meta_enrich import enrich_from_crossref
         _meta = enrich_from_crossref(doi, timeout=10.0)
+        if not _meta:
+            # v2.85 大小写重试：normalize_doi 恒小写，但 Crossref works 路径大小写敏感
+            #   （10.1212/WNL.… 全小写 404、WNL 大写 200）。后缀含字母才尝试，零正常流量成本。
+            try:
+                fixed_case = _doi_case_retry(doi)
+            except Exception:
+                fixed_case = None
+            if fixed_case:
+                doi = fixed_case
+                _meta = enrich_from_crossref(doi, timeout=10.0)
         if not _meta:
             # v2.76 截断重试：Crossref 404 且末段含字母 → 剥粘连字母再查（刀1 auto 可回写）
             fixed, level = _doi_truncate_retry(doi)
