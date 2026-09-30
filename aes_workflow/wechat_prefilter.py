@@ -566,6 +566,54 @@ def parse_reference_section(text: str) -> list[str]:
     return refs
 
 
+def _doi_truncate_retry(doi: str) -> tuple[str | None, str | None]:
+    """v2.76 截断重试：Crossref 404 且末段含字母时，逐刀截断后再查。
+
+    背景：微信正文 DOI 后无空格粘字母（10.1111/jocd.71183digital）。DOI 规范
+    （ISO 26324）后缀允许字母，不能按「末尾必数字」校验；统一 Crossref 验证兜底。
+
+    返回 (修正doi, 级别)：
+      - ("10.1111/jocd.71183", "auto")   刀1剥末尾字母命中 → 可自动回写
+      - (可能命中值,          "manual")  刀2删末个.分段命中 → 仅为刊缩写类，必须⚠️人工裁决，调用方不得自动信任
+      - (None, None)                     两刀均不命中（或无需截断）
+    """
+    import re as _re
+    try:
+        from aes_workflow.meta_enrich import enrich_from_crossref
+    except Exception:
+        return None, None
+
+    s = (doi or "").strip().lower()
+    if not s or "." not in s or "/" not in s:
+        return None, None
+    tail = s.rsplit(".", 1)[-1]
+    if not tail or not _re.search(r"[a-z]", tail):
+        return None, None  # 末段无字母（纯数字/数字+连字符）→ 不是粘连形态，不截
+
+    # 刀1：末段剥末尾连续字母（…71183digital → …71183）
+    m = _re.search(r"[a-z]+$", s)
+    if m:
+        cand = s[: m.start()]
+        if cand.rsplit(".", 1)[-1]:  # 剥后末段非空
+            try:
+                if enrich_from_crossref(cand, timeout=10.0):
+                    print(f"[wx-doi-fix] 截断修正(auto): {doi} → {cand}", flush=True)
+                    return cand, "auto"
+            except Exception:
+                pass
+
+    # 刀2：整段删最后一个 . 分段（…jocd.71183digital → …jocd）——命中只上报，不自动信任
+    cand2 = s.rsplit(".", 1)[0]
+    if cand2.rsplit("/", 1)[-1]:
+        try:
+            if enrich_from_crossref(cand2, timeout=10.0):
+                print(f"[wx-doi-fix] ⚠️ 刀2截断命中(需人工裁决): {doi} → {cand2}", flush=True)
+                return cand2, "manual"
+        except Exception:
+            pass
+    return None, None
+
+
 def crossref_bibliographic_to_doi(ref: str, score_min: float = 80.0) -> str | None:
     """整条英文引文串 → Crossref query.bibliographic 反查 DOI（score 阈值拦截误匹配）。"""
     import requests
@@ -625,6 +673,35 @@ def update_entry_with_identifiers(
     # 收集标识符写入主表
     updates = {}
     dois = [idf["value"] for idf in identifiers if idf["type"] == "doi"]
+    # v2.76 截断重试：最佳候选末段以字母结尾（如 …71183digital 粘连）时先 Crossref 验证，
+    #   404 → 刀1剥尾字母命中即替换（auto）。纯数字末段零成本跳过。
+    #   刀2(manual) 不自动信任，仅日志，主表照旧写原串留⚠️痕迹。
+    if dois and re.search(r"[a-z]$", dois[0]):
+        try:
+            from aes_workflow.meta_enrich import enrich_from_crossref as _ecr
+            if not _ecr(dois[0], timeout=10.0):
+                fixed, level = _doi_truncate_retry(dois[0])
+                if fixed and level == "auto":
+                    old = dois[0]
+                    identifiers = [
+                        {"type": "doi", "value": fixed, "via": idf.get("via", "")}
+                        if idf.get("type") == "doi" and idf["value"] == old else idf
+                        for idf in identifiers
+                    ]
+                    # 去重：修正值可能与既有次候选重复
+                    seen_d: set[str] = set()
+                    deduped = []
+                    for idf in identifiers:
+                        v = (idf.get("value") or "").lower()
+                        if idf.get("type") == "doi":
+                            if v in seen_d:
+                                continue
+                            seen_d.add(v)
+                        deduped.append(idf)
+                    identifiers = deduped
+                    dois = [idf["value"] for idf in identifiers if idf["type"] == "doi"]
+        except Exception as e:
+            print(f"[wx-doi-fix] 候选验证跳过(不阻塞): {e}", flush=True)
     for idf in identifiers:
         t, v = idf["type"], idf["value"]
         if t == "doi" and not updates.get("doi"):
@@ -765,6 +842,15 @@ def _upsert_wx_doi_entry(
     try:
         from aes_workflow.meta_enrich import enrich_from_crossref
         _meta = enrich_from_crossref(doi, timeout=10.0)
+        if not _meta:
+            # v2.76 截断重试：Crossref 404 且末段含字母 → 剥粘连字母再查（刀1 auto 可回写）
+            fixed, level = _doi_truncate_retry(doi)
+            if fixed and level == "auto":
+                doi = fixed
+                _meta = enrich_from_crossref(doi, timeout=10.0)
+            elif fixed and level == "manual":
+                # 刀2命中不可自动信任：保留原串走后续链，日志已标⚠️
+                pass
         if _meta and _meta.get("title"):
             lit_title = _meta["title"].strip()
     except Exception:
