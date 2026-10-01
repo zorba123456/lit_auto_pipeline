@@ -921,6 +921,9 @@ def _upsert_wx_doi_entry(
             if cn and cn.get("title"):
                 _meta = {
                     "title": cn["title"],
+                    "journal": cn.get("journal", ""),
+                    "authors": cn.get("authors", ""),
+                    "pub_date": cn.get("pub_date", ""),
                     "source_url": cn.get("source_url", ""),
                 }
                 lit_title = cn["title"]
