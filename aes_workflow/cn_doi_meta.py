@@ -16,6 +16,11 @@ HTML 内嵌「题名：」「作者：」「出版机构：」等字段，直接
 2026-09-14 实测：
 - 10.3969/j.issn.1674-8468.2017.01.007 → 慢性光化性皮炎95例临床、光试验和光斑贴试验结果分析
 - 10.15909/j.cnki.cn61-1347/r.007552 → CBCT评估隐形矫治器矫治骨性Ⅱ类错(牙合)畸形对颞下颌关节相关指标的影响
+
+路线 E（v2.89）：《医学美学美容》官网直查（yxmx1992.com 目次页）。该刊
+10.3969/j.issn.1004-4949.* 大量未注册 handle（doi.org API HANDLE_NOT_FOUND、
+Crossref 404），chndoi/EBSCO/万方渲染全灭；官网目次页按
+issue/<year>_0_<issue> 可直查全字段（标题/作者/卷期页）。
 """
 
 import re
@@ -104,6 +109,11 @@ def cn_doi_search(doi: str) -> dict | None:
     if meta:
         meta["source_url"] = f"https://doi.org/{d}"
         return meta
+    # v2.89 第五链：《医学美学美容》官网直查（该刊 DOI 多未注册 handle，
+    #   doi.org/chndoi/EBSCO/万方全部无从解析，只能走官网目次页）
+    yx = yxmx_doi_search(d)
+    if yx:
+        return yx
     # v2.86 EBSCO 直构（gcd 库收录中国美容整形外科杂志等中文刊，全字段结构化）
     eb = ebsco_doi_search(d)
     if eb:
@@ -213,6 +223,56 @@ def _clean_cit_title(t: str) -> str:
     # 编号前缀
     t = re.sub(r"^\[?\d+\]?\s*", "", t)
     return t.strip()
+
+
+# ── v2.89 第五链：《医学美学美容》官网直查（yxmx1992.com）──────────
+# 背景：该刊 DOI（10.3969/j.issn.1004-4949.<year>.<issue>.<art>）大量未在
+#   handle 注册局登记（doi.org HANDLE_NOT_FOUND、Crossref 404），旧四链
+#   （chndoi/EBSCO/万方渲染/引文页）全灭。但官网有全量元数据：
+#   目次页 http://www.yxmx1992.com/yxmxmr/article/issue/<year>_0_<issue>
+#   每条含「标题 / 作者 / 年,卷(期):页 / DOI: ...」；摘要页 id 可由目次页解析。
+_YXMX_DOI_RE = re.compile(
+    r"10\.3969/j\.issn\.1004-4949\.(\d{4})\.(\d+)\.(\d+)", re.I
+)
+
+
+def yxmx_doi_search(doi: str) -> dict | None:
+    """路线 E：《医学美学美容》官网目次页按 DOI 直查（纯 curl，免渲染）。"""
+    m = _YXMX_DOI_RE.fullmatch((doi or "").strip())
+    if not m:
+        return None
+    year, iss, art = m.group(1), m.group(2), m.group(3)
+    html = _curl_text(
+        f"http://www.yxmx1992.com/yxmxmr/article/issue/{year}_0_{iss}", timeout=15
+    )
+    if not html:
+        return None
+    i = html.find(f"1004-4949.{year}.{iss}.{art}")
+    if i < 0:
+        return None
+    seg = html[max(0, i - 2500): i + 200]
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "|", seg))
+    parts = [p.strip() for p in text.split("|") if p.strip()]
+    # 目次条目结构：… 标题 / 作者，作者 / 年,卷(期):页. / DOI: …（窗口可能混入
+    #   前一篇的摘要文本，故以「年,卷(期):页」锚点倒推，不取末段）
+    anchor = next(
+        (k for k in range(len(parts) - 1, -1, -1)
+         if re.fullmatch(r"\d{4}, \d+\(\d+\):[\d\-–—]+\.?", parts[k])),
+        None,
+    )
+    if anchor is None or anchor < 2:
+        return None
+    title, authors = parts[anchor - 2], parts[anchor - 1]
+    if len(title) < 4 or "DOI" in title or "摘要" in title:
+        return None
+    meta = {
+        "title": title,
+        "authors": authors if len(authors) < 60 else "",
+        "journal": "医学美学美容",
+        "source_url": f"https://doi.org/{doi}",
+        "source": "yxmx_issue",
+    }
+    return meta
 
 
 def citation_page_search(urls: list[str], doi: str) -> dict | None:
