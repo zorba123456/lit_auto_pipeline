@@ -583,9 +583,28 @@ def _doi_truncate_retry(doi: str) -> tuple[str | None, str | None]:
     except Exception:
         return None, None
 
-    s = (doi or "").strip().lower()
+    orig = (doi or "").strip().lower()
+    s = orig
     if not s or "." not in s or "/" not in s:
         return None, None
+    # v2.91: 尾随标点先剥（"…264published:" 冒号使尾段字母判定与刀1正则 [a-z]+$ 全失效）
+    s = s.rstrip(".:;,")
+    # v2.91: 语义词杂质截断（published/firstpublished/epub/pmid…），与 _truncate_doi 同源——
+    # 该形态此前只被 _truncate_doi 覆盖，而多候选改造后该函数零调用，成了防线缺口。
+    m = _DOI_IMPURITY.search(s)
+    if m:
+        s = s[: m.start()].rstrip(".")
+    if not s or "." not in s or "/" not in s:
+        return None, None
+    # 清洗改变了原串：清洗结果先直接 Crossref 验证，命中即 auto 回写
+    if s != orig:
+        try:
+            if enrich_from_crossref(s, timeout=10.0):
+                print(f"[wx-doi-fix] 清洗截断修正(auto): {doi} → {s}", flush=True)
+                return s, "auto"
+        except Exception:
+            pass
+
     tail = s.rsplit(".", 1)[-1]
     if not tail or not _re.search(r"[a-z]", tail):
         return None, None  # 末段无字母（纯数字/数字+连字符）→ 不是粘连形态，不截
@@ -706,7 +725,8 @@ def update_entry_with_identifiers(
     # v2.76 截断重试：最佳候选末段以字母结尾（如 …71183digital 粘连）时先 Crossref 验证，
     #   404 → 刀1剥尾字母命中即替换（auto）。纯数字末段零成本跳过。
     #   刀2(manual) 不自动信任，仅日志，主表照旧写原串留⚠️痕迹。
-    if dois and re.search(r"[a-z]$", dois[0]):
+    if dois and (re.search(r"[a-z]$", dois[0]) or _DOI_IMPURITY.search(dois[0])
+                 or dois[0][-1:] in ":;,"):  # v2.91: "…published:" 冒号尾也要进截断重试
         try:
             from aes_workflow.meta_enrich import enrich_from_crossref as _ecr
             if not _ecr(dois[0], timeout=10.0):
